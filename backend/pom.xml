@@ -64,6 +64,12 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- JSON / HTTP client for AI + Razorpay adapters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
         <!-- Config -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -36,6 +36,19 @@ recoverai:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
+  # Phase 5 - AI Recovery Agent. The AI only recommends; RecoveryPolicyService
+  # (Phase 4) remains the sole authorization boundary. Default provider is
+  # "mock" - deterministic, offline, no API key required - so the app builds,
+  # runs, and tests fully without AI credentials. See docs/ARCHITECTURE.md.
+  ai:
+    provider: ${AI_PROVIDER:mock} # mock | anthropic
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      model: ${ANTHROPIC_MODEL:claude-sonnet-5}
+      temperature: ${ANTHROPIC_TEMPERATURE:0.2}
+      timeout-seconds: ${ANTHROPIC_TIMEOUT_SECONDS:15}
+      max-tokens: ${ANTHROPIC_MAX_TOKENS:1024}
+
   # Phase 4 - Recovery Safety / Policy Engine. The AI (Phase 5) may
   # recommend a recovery action, but these deterministic thresholds decide
   # whether it is actually allowed to run. See docs/ARCHITECTURE.md.
