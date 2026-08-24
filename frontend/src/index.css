@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+
+  /* Dark fintech palette */
+  --color-surface-0: #0b0d12;
+  --color-surface-1: #12151c;
+  --color-surface-2: #1a1e28;
+  --color-border: #262b38;
+  --color-text-primary: #e6e8ee;
+  --color-text-secondary: #8b93a7;
+  --color-accent: #5b8cff;
+  --color-success: #2ecf8f;
+  --color-warning: #f4b740;
+  --color-danger: #f5556c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-surface-0);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}

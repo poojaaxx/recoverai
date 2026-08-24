@@ -1,0 +1,21 @@
+# Optional fallback profile for local development when Docker/PostgreSQL is
+# not available on the machine. Activate with SPRING_PROFILES_ACTIVE=local.
+#
+# This is NOT the primary target database for this project (PostgreSQL is —
+# see application.yml and docker-compose.yml). It exists purely so the
+# backend can be started and smoke-tested without any external services.
+# Flyway migrations are PostgreSQL-specific and are disabled here in favor of
+# Hibernate schema generation against H2.
+spring:
+  datasource:
+    url: jdbc:h2:file:./.data/recoverai;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: sa
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+  flyway:
+    enabled: false
