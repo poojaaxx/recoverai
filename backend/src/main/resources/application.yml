@@ -36,6 +36,47 @@ recoverai:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
+  # Phase 3 - Revenue Risk Engine. All weights below are application-invented,
+  # illustrative synthetic values for this prototype - not a statistically
+  # fitted or externally validated model. See docs/ARCHITECTURE.md.
+  risk:
+    pending-baseline-recovery-weight: 0.60
+    abandoned-baseline-recovery-weight: 0.35
+    terminal-state-recovery-factor: 0.50
+    failure-category-recovery-weights:
+      TEMPORARY_FAILURE: 0.80
+      NETWORK_ERROR: 0.75
+      INSUFFICIENT_FUNDS: 0.55
+      LIMIT_EXCEEDED: 0.45
+      BANK_DECLINED: 0.35
+      AUTHENTICATION_FAILURE: 0.30
+      UNKNOWN: 0.25
+    amount-thresholds:
+      low: 1000
+      mid: 10000
+      high: 30000
+    amount-factors:
+      low: 0.10
+      mid: 0.30
+      high: 0.60
+      very-high: 0.92
+    weights:
+      amount: 0.65
+      failure: 0.18
+      history: 0.05
+      attempts: 0.12
+    history:
+      strong-threshold: 0.75
+      weak-threshold: 0.35
+      probability-adjustment-weight: 0.30
+    attempts:
+      probability-penalty-per-unit: 0.15
+      risk-urgency-per-unit: 0.20
+    risk-level-thresholds:
+      medium: 30
+      high: 60
+      critical: 80
+
 logging:
   level:
     root: INFO
