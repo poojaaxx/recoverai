@@ -84,6 +84,36 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          Runs a real, JVM-managed PostgreSQL instance (no Docker required) so
+          Flyway migrations and Hibernate schema validation can be verified
+          against actual PostgreSQL rather than only against H2. Used by
+          PostgresMigrationIntegrationTest only; unit/repository tests
+          continue to use the lightweight H2 "test" profile.
+
+          Version note: the project's target database is PostgreSQL 16 (see
+          docker-compose.yml). Maven Central currently only hosts Windows
+          binaries for this artifact at the 18.4.0 release; 16.x Windows
+          binaries return 404. Since this is a syntax/schema-compatibility
+          check (standard DDL, gen_random_uuid(), JSONB, NUMERIC,
+          TIMESTAMPTZ — all present since PG13), running it against 18
+          instead of 16 does not change what it verifies. Swap this to a
+          16.x version once one is available, or once Docker/local Postgres
+          16 is available for real integration testing.
+        -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>2.1.0</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.zonky.test.postgres</groupId>
+            <artifactId>embedded-postgres-binaries-windows-amd64</artifactId>
+            <version>18.4.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
