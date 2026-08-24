@@ -49,6 +49,21 @@ recoverai:
       timeout-seconds: ${ANTHROPIC_TIMEOUT_SECONDS:15}
       max-tokens: ${ANTHROPIC_MAX_TOKENS:1024}
 
+  # Phase 6 - Razorpay Integration / Payment Adapter. PaymentGateway is a
+  # pure execution boundary - it never decides whether an action is safe
+  # (that remains RecoveryPolicyService's job, Phase 4). Two independent
+  # opt-ins (enabled=true AND mode=test) are both required before any real
+  # call can be made; the default is always the offline mock. See
+  # docs/ARCHITECTURE.md.
+  razorpay:
+    enabled: ${RAZORPAY_ENABLED:false}
+    mode: ${RAZORPAY_MODE:simulation} # simulation (mock, default) | test (real Razorpay Test Mode API)
+    key-id: ${RAZORPAY_KEY_ID:}
+    key-secret: ${RAZORPAY_KEY_SECRET:}
+    webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+    base-url: ${RAZORPAY_BASE_URL:https://api.razorpay.com}
+    timeout-seconds: ${RAZORPAY_TIMEOUT_SECONDS:15}
+
   # Phase 4 - Recovery Safety / Policy Engine. The AI (Phase 5) may
   # recommend a recovery action, but these deterministic thresholds decide
   # whether it is actually allowed to run. See docs/ARCHITECTURE.md.
