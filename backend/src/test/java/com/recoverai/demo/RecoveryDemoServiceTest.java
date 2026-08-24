@@ -1,0 +1,150 @@
+package com.recoverai.demo;
+
+import com.recoverai.domain.PolicyDecision;
+import com.recoverai.domain.RecoveryAction;
+import com.recoverai.dto.RecoveryDemoScenarioResponse;
+import com.recoverai.dto.RecoveryDemoSummaryResponse;
+import com.recoverai.repository.RecoveryAttemptRepository;
+import com.recoverai.seed.DemoDataSeeder;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.math.BigDecimal;
+import java.util.NoSuchElementException;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * Verifies the Phase 8 demo service against the five fixed scenarios (spec
+ * section 2), reusing the real seeded demo data and the real Phase 3-7
+ * pipeline — no scenario outcome is hardcoded here independently of what
+ * the real services actually decide.
+ */
+@SpringBootTest
+@ActiveProfiles("test")
+class RecoveryDemoServiceTest {
+
+    @Autowired
+    private DemoDataSeeder seeder;
+    @Autowired
+    private RecoveryDemoService recoveryDemoService;
+    @Autowired
+    private RecoveryAttemptRepository recoveryAttemptRepository;
+
+    @BeforeEach
+    void setUp() {
+        seeder.seed();
+    }
+
+    @Test
+    void runAll_returnsFiveScenariosWithExpectedOutcomes() {
+        RecoveryDemoSummaryResponse summary = recoveryDemoService.runAll();
+
+        assertThat(summary.scenariosEvaluated()).isEqualTo(5);
+        assertThat(summary.scenarios()).hasSize(5);
+
+        RecoveryDemoScenarioResponse easy = find(summary, "EASY_RECOVERY");
+        assertThat(easy.policyDecision()).isEqualTo(PolicyDecision.ALLOW);
+        assertThat(easy.executed()).isTrue();
+        assertThat(easy.finalAction()).isEqualTo(RecoveryAction.RETRY_PAYMENT);
+        assertThat(easy.provider()).isEqualTo("mock");
+        assertThat(easy.simulated()).isTrue();
+        assertThat(easy.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+
+        RecoveryDemoScenarioResponse highValue = find(summary, "HIGH_VALUE_ESCALATION");
+        assertThat(highValue.policyDecision()).isEqualTo(PolicyDecision.ESCALATE);
+        assertThat(highValue.executed()).isFalse();
+        assertThat(highValue.requiresHumanApproval()).isTrue();
+
+        RecoveryDemoScenarioResponse repeatedFailure = find(summary, "REPEATED_FAILURE_STOP");
+        assertThat(repeatedFailure.policyDecision()).isEqualTo(PolicyDecision.STOP);
+        assertThat(repeatedFailure.executed()).isFalse();
+
+        RecoveryDemoScenarioResponse alreadyRecovered = find(summary, "ALREADY_RECOVERED");
+        assertThat(alreadyRecovered.policyDecision()).isEqualTo(PolicyDecision.BLOCK);
+        assertThat(alreadyRecovered.executed()).isFalse();
+
+        RecoveryDemoScenarioResponse alreadyEscalated = find(summary, "ALREADY_ESCALATED");
+        assertThat(alreadyEscalated.policyDecision()).isEqualTo(PolicyDecision.ESCALATE);
+        assertThat(alreadyEscalated.executed()).isFalse();
+        assertThat(alreadyEscalated.requiresHumanApproval()).isTrue();
+    }
+
+    @Test
+    void runAll_auditTimelineIsNeverEmptyForAnyScenario() {
+        RecoveryDemoSummaryResponse summary = recoveryDemoService.runAll();
+        for (RecoveryDemoScenarioResponse scenario : summary.scenarios()) {
+            assertThat(scenario.auditTimeline()).as("audit timeline for " + scenario.scenarioLabel()).isNotEmpty();
+        }
+    }
+
+    @Test
+    void runAll_confirmedAmountRecoveredIsAlwaysZero() {
+        RecoveryDemoSummaryResponse summary = recoveryDemoService.runAll();
+        assertThat(summary.confirmedAmountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+        for (RecoveryDemoScenarioResponse scenario : summary.scenarios()) {
+            assertThat(scenario.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+        }
+    }
+
+    @Test
+    void runAll_aggregateCountsMatchPerScenarioDecisions() {
+        RecoveryDemoSummaryResponse summary = recoveryDemoService.runAll();
+
+        assertThat(summary.allowedCount()).isEqualTo(1);
+        assertThat(summary.escalatedCount()).isEqualTo(2);
+        assertThat(summary.stoppedCount()).isEqualTo(1);
+        assertThat(summary.blockedCount()).isEqualTo(1);
+        assertThat(summary.executedCount()).isEqualTo(1);
+        assertThat(summary.gatewayCalls()).isEqualTo(1);
+        assertThat(summary.simulatedExecutions()).isEqualTo(1);
+    }
+
+    @Test
+    void runningDemoTwice_doesNotCreateAdditionalRecoveryAttemptsAndStaysBlockedByPolicy() {
+        // The wider seeded dataset (bulk transactions, plus historical attempts pre-seeded
+        // for the repeated-failure/successful-recovery scenarios) already contains many
+        // RecoveryAttempt rows, so this asserts the DELTA the demo itself adds, not a total.
+        long baseline = recoveryAttemptRepository.count();
+
+        recoveryDemoService.runAll();
+        long attemptsAfterFirstRun = recoveryAttemptRepository.count();
+        assertThat(attemptsAfterFirstRun - baseline).isEqualTo(1); // only the easy-recovery scenario ever executes
+
+        RecoveryDemoSummaryResponse secondRun = recoveryDemoService.runAll();
+        long attemptsAfterSecondRun = recoveryAttemptRepository.count();
+
+        assertThat(attemptsAfterSecondRun).isEqualTo(attemptsAfterFirstRun);
+        assertThat(secondRun.gatewayCalls()).isZero();
+        assertThat(secondRun.executedCount()).isZero();
+
+        RecoveryDemoScenarioResponse easySecondTime = find(secondRun, "EASY_RECOVERY");
+        assertThat(easySecondTime.executed()).isFalse();
+        assertThat(easySecondTime.policyDecision()).isEqualTo(PolicyDecision.BLOCK);
+        assertThat(easySecondTime.safetyExplanation()).containsIgnoringCase("safety policy");
+    }
+
+    @Test
+    void runOne_unknownExternalId_throwsNotFound() {
+        assertThatThrownBy(() -> recoveryDemoService.runOne("not-a-real-demo-transaction"))
+                .isInstanceOf(DemoScenarioNotFoundException.class);
+    }
+
+    @Test
+    void runOne_matchesTheCorrespondingEntryFromRunAll() {
+        RecoveryDemoScenarioResponse single = recoveryDemoService.runOne("demo-easy-recovery");
+        assertThat(single.externalTransactionId()).isEqualTo("demo-easy-recovery");
+        assertThat(single.scenarioLabel()).isEqualTo("EASY_RECOVERY");
+    }
+
+    private static RecoveryDemoScenarioResponse find(RecoveryDemoSummaryResponse summary, String label) {
+        return summary.scenarios().stream()
+                .filter(s -> s.scenarioLabel().equals(label))
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("No scenario labeled " + label));
+    }
+}
