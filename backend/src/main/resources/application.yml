@@ -36,6 +36,15 @@ recoverai:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 
+  # Phase 4 - Recovery Safety / Policy Engine. The AI (Phase 5) may
+  # recommend a recovery action, but these deterministic thresholds decide
+  # whether it is actually allowed to run. See docs/ARCHITECTURE.md.
+  policy:
+    max-automatic-retry-attempts: 2
+    max-autonomous-recovery-amount: 25000
+    max-recovery-actions-per-transaction: 3
+    duplicate-action-window-hours: 24
+
   # Phase 3 - Revenue Risk Engine. All weights below are application-invented,
   # illustrative synthetic values for this prototype - not a statistically
   # fitted or externally validated model. See docs/ARCHITECTURE.md.
