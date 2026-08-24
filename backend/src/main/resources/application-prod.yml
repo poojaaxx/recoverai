@@ -1,0 +1,39 @@
+# Explicit production profile. Activate with SPRING_PROFILES_ACTIVE=prod.
+#
+# Everything here is a deliberately narrow OVERLAY on application.yml
+# (Spring Boot merges this on top of the base file) - it exists to make a
+# few production-specific requirements self-documenting and explicit in
+# their own file, not to change behavior the base/default profile didn't
+# already have. The base profile already targets real PostgreSQL with
+# Flyway enabled and ddl-auto=validate - this file restates those
+# requirements explicitly (as a guard against a future edit to the base
+# file silently weakening them for production) and tightens two things
+# that are convenience defaults in the base profile but should not be:
+# CORS (no implicit localhost fallback) and log verbosity.
+spring:
+  jpa:
+    hibernate:
+      # Never let Hibernate create/alter schema in production - Flyway
+      # migrations (V1-V10) are the only source of schema change.
+      ddl-auto: validate
+
+  flyway:
+    enabled: true
+
+recoverai:
+  cors:
+    # FRONTEND_URL is the primary production variable (see README
+    # "Buildathon Deployment"); CORS_ALLOWED_ORIGINS is accepted as a
+    # backward-compatible alias for anyone already using that name. There
+    # is deliberately NO localhost fallback in this profile - an operator
+    # must set one of these explicitly, unlike the default profile (which
+    # defaults to http://localhost:5173 for local-dev convenience).
+    allowed-origins: ${FRONTEND_URL:${CORS_ALLOWED_ORIGINS:}}
+
+logging:
+  level:
+    root: INFO
+    # Less verbose than the default profile's DEBUG - appropriate for a
+    # publicly reachable deployment; nothing secret is ever logged at any
+    # level (see README "Security notes"), this is purely about log volume.
+    com.recoverai: INFO

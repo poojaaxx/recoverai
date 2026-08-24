@@ -24,17 +24,35 @@ spring:
     baseline-on-migrate: true
 
 server:
-  port: ${SERVER_PORT:8080}
+  # PORT takes priority when set (Render/Railway/Heroku-style platforms
+  # inject it and expect the app to bind to it); SERVER_PORT is the
+  # explicit override for anyone not using such a platform; 8080 is the
+  # local-dev default.
+  port: ${PORT:${SERVER_PORT:8080}}
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      # Never show dependency/DB details (connection strings, driver info)
+      # in the health response body - only UP/DOWN. See docs/DEMO.md /
+      # README "Buildathon Deployment" for the health-check contract.
+      show-details: never
 
 recoverai:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+
+  # Phase 8 seed data, made explicitly opt-in for deployment (off by
+  # default everywhere, including this default/production profile) so a
+  # deployed instance never silently reseeds itself on every restart. Set
+  # DEMO_SEED_ENABLED=true only for the buildathon demo deployment - see
+  # DemoSeedRunner and README "Buildathon Deployment".
+  demo:
+    seed-enabled: ${DEMO_SEED_ENABLED:false}
 
   # Phase 5 - AI Recovery Agent. The AI only recommends; RecoveryPolicyService
   # (Phase 4) remains the sole authorization boundary. Default provider is
