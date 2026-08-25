@@ -33,6 +33,8 @@ Every recommendation still has to pass through the policy engine before anything
 
 So the AI is useful for the "what should we try" judgment call, and the policy engine is the one thing that gets to say yes to actually spending a provider call on it. I kept it this way on purpose — authorization needs to be predictable and explainable, and an LLM call isn't a good fit for that.
 
+Worth being precise about which "AI" is actually running: by default (including this deployment) it's a deterministic decision engine, not a live model call — the UI says so explicitly ("Deterministic AI simulation — no external LLM configured") rather than implying more than is true. There's also a real Anthropic Claude integration behind the same interface, genuinely wired to make an API call, that activates if you configure an API key — it's just never had one in this environment, so the mock path is what everyone actually sees today.
+
 ## The recovery flow
 
 ```
@@ -68,6 +70,8 @@ This was most of the actual engineering work, honestly. A few examples:
 
 If a transaction already hit its retry limit, the policy returns STOP and nothing gets called — no matter what the AI suggests. If the amount is above the autonomous limit, it escalates for human approval instead of running automatically. If the provider itself declines or times out, that's recorded as a failed attempt, not a recovered one, and the transaction stays failed. Two execution requests for the same transaction firing at once (which I tested with actual concurrent threads) resolve to exactly one provider call, thanks to a database-level idempotency constraint — the second request just gets back the same result instead of double-charging. Webhook deliveries are idempotent the same way, so a replayed or duplicated webhook can't double-count revenue. And if the AI provider itself fails or returns something malformed, the system falls back to escalating rather than guessing.
 
+A couple of things I added after the first pass, once I thought harder about what "safe" actually requires: a cooldown between recovery actions on the same transaction (off by default so it doesn't get in the way of the demo, but real and tested), and a proper escalation review — a merchant admin can approve or reject an escalated transaction, and approving doesn't just wave it through. It re-runs the entire AI-and-policy pipeline fresh; if the amount is still over the limit, it escalates right back and nothing executes. I also stopped letting `SEND_RECOVERY_REMINDER` be a silent no-op — it's now a real, auditable, non-payment action that counts toward the same retry limits as everything else, instead of quietly doing nothing while looking like it did something.
+
 None of this is exotic — it's mostly "don't trust anything twice, and fail toward the safe option."
 
 ## Measuring recovered revenue
@@ -78,13 +82,17 @@ Execution success is not the same as payment success. A recovery action succeedi
 
 I'm being upfront about where this currently stands: **the deployed environment doesn't have real Razorpay Test Mode credentials configured**, so it runs on the mock/simulation gateway. That means confirmed recovered revenue in this environment is genuinely ₹0.00 — always has been. The confirmation pipeline itself (signature verification, correlation, idempotency, the whole thing) is implemented and covered by tests that drive a real signed webhook through the real endpoint. It's just never had a real payment to confirm. I'd rather say that plainly than dress up a number that isn't real.
 
+Since "trust me, the code works" isn't very convincing on its own, there's a button for this in the demo console too: once a recovery has executed against the mock gateway, "Confirm via signed webhook (TEST/SIMULATION)" builds a real payment_link.paid payload from that attempt's own amount and reference, signs it with the actual configured webhook secret, and sends it through the exact same `PaymentConfirmationService` code a real Razorpay webhook would hit — not a shortcut, not a different endpoint. You can watch the number go from ₹0.00 to non-zero and then go check the audit trail for proof it went through real verification. It's gated so it only ever works in demo mode, only against a mock-provider execution, and every result is labeled TEST/SIMULATION so it's never confused with a real payment.
+
 ## Demo
 
 Live app: **https://recoverai-bay.vercel.app/demo/recovery**
 
 You'll be asked to log in first — use `merchant.admin` / `RecoverAI-Judge-Admin-2026` for full access (including executing a recovery), or `operator` / `RecoverAI-Judge-Operator-2026` for a read-only view.
 
-The `/demo/recovery` console walks through 5 named scenarios — an easy recovery that gets ALLOWed, a high-value transaction that gets ESCALATEd instead of auto-retried, a transaction that already hit its STOP limit, one that's already recovered, and one already escalated. Each button (Analyze Risk, Get AI Recommendation, Evaluate Policy, Execute Recovery) calls the real backend, nothing is precomputed. There's also a `/transactions` dashboard for browsing and filtering any transaction in the database, not just the 5 curated ones.
+The `/demo/recovery` console walks through 5 named scenarios — an easy recovery that gets ALLOWed, a high-value transaction that gets ESCALATEd instead of auto-retried, a transaction that already hit its STOP limit, one that's already recovered, and one already escalated. Each button (Analyze Risk, Get AI Recommendation, Evaluate Policy, Execute Recovery) calls the real backend, nothing is precomputed. There's also a `/transactions` dashboard for browsing and filtering any transaction in the database, not just the 5 curated ones, and a `/audit` page showing the same kind of audit trail across the whole portfolio instead of one transaction at a time.
+
+If a transaction is escalated, its detail page shows an "Escalation review" panel — a merchant admin can approve it (which re-runs the whole AI-and-policy check fresh rather than just waving it through) or reject it (which just records that a human looked at it and said no).
 
 ## Tech stack
 
@@ -96,7 +104,7 @@ The `/demo/recovery` console walks through 5 named scenarios — an easy recover
 
 ## Build quality
 
-291 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
+322 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
 
 ## A failure I actually hit
 

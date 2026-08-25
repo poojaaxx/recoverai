@@ -522,6 +522,37 @@ attempt rather than a fresh provider call.
 There is deliberately no `POST /api/payments/execute` or similar endpoint
 that would let a caller choose an arbitrary action.
 
+`SEND_RECOVERY_REMINDER` (P0.2) is a real, auditable, non-payment
+`RecoveryAttempt` (`executionStatus=SUCCESS`, `provider=null`,
+`amountRecovered=0.00`), not a silent no-op — but `executed` stays `false`
+since no `PaymentGateway` call happened; see `executionNote`.
+
+#### `POST /api/recovery/{transactionId}/approve` and `.../reject` (P1.1, `MERCHANT_ADMIN` only)
+
+Only valid when the transaction is currently `ESCALATED`
+(`409 Conflict` otherwise). **Approving never itself authorizes
+execution** — it lifts the transaction back to `FAILED` and then calls
+the exact same `execute` pipeline above, so the AI recommendation and
+the *entire* policy check chain (retry limit, repeated-failure cap,
+amount limit, duplicate-action, cooldown, risk flags) run fresh. If
+still not authorized, it escalates or blocks again and nothing executes.
+Response shape is the same `RecoveryExecutionResponse` as `execute`.
+Rejecting takes an optional `{"reason": "..."}` body, leaves the
+transaction `ESCALATED`, and only records an audit event.
+
+#### `POST /api/demo/recovery/confirm-test-payment/{transactionId}` (P0.4, `MERCHANT_ADMIN` only)
+
+The judge-safe way to see the confirmation pipeline produce a real,
+non-zero `confirmedRecoveredRevenue` without real Razorpay credentials.
+Builds a `payment_link.paid` payload from an already-executed mock
+attempt's own amount/currency/provider-reference, signs it with the real
+configured `RAZORPAY_WEBHOOK_SECRET`, and feeds it into the exact same
+`PaymentConfirmationService.processRazorpayWebhook` a genuine inbound
+webhook would hit. Requires `DEMO_SEED_ENABLED=true`,
+`RAZORPAY_ENABLED=false`, and an eligible attempt (mock provider, not yet
+confirmed) — `409 Conflict` otherwise, with a plain-language reason.
+Response always includes `"label"` stating this is a TEST/SIMULATION.
+
 ### Failure-Recovery Demo (Phase 8)
 
 A read/aggregation layer over the real Phase 3-7 pipeline, run against the
@@ -634,6 +665,16 @@ Added so the interactive frontend console can refresh a transaction's
 audit trail independently, for any transaction, not just the 5 curated
 demo scenarios.
 
+#### `GET /api/audit` (P1.4)
+
+Portfolio-wide, paginated audit feed across every transaction, not just
+one already-known id — same real `AuditLog` rows, each additionally
+carrying `transactionId`/`externalTransactionId`. Optional query params:
+`eventType`, `actor`, `transactionId`, `from`/`to` (ISO instants), plus
+standard `page`/`size`/`sort` (default: newest first, `size=25`, capped
+at 100). No `metadata` field is exposed here, same as the per-transaction
+timeline above.
+
 ### Payment confirmation (Phase 12)
 
 See `com.recoverai.webhook.PaymentConfirmationService` and
@@ -695,6 +736,7 @@ every `RecoveryAttempt` ever created — not just the 5 demo scenarios.
   "executionSuccessRate": 0.7143,
   "confirmationRate": 0.0000,
   "pendingConfirmationAmount": 74970.00,
+  "amountRemainingAtRisk": 1159597.89,
   "transactionsRecovered": 0,
   "transactionsEscalated": 6,
   "transactionsStopped": 4
@@ -706,7 +748,14 @@ confirmed — never from execution success or `potentiallyRecoverableRevenue`.
 With the default mock provider (or an unconfigured Razorpay), it is
 honestly `0.00`, as shown above. `pendingConfirmationAmount` is the sum of
 `amount` across attempts that executed successfully but have not yet been
-confirmed — money genuinely "in flight."
+confirmed — money genuinely "in flight." `amountRemainingAtRisk` (P1.3) is
+`max(0, totalRevenueAtRisk - confirmedRecoveredRevenue)` — never negative,
+never double-counted. `successfulExecutionCount` and
+`pendingConfirmationAmount` are both restricted to rows a real
+`PaymentGateway` call produced (`provider IS NOT NULL`) — a recorded
+`SEND_RECOVERY_REMINDER` never inflates either figure.
+`transactionsEscalated`/`transactionsStopped` (P0.1) now reflect the live
+pipeline's own `Transaction.status` transitions, not just seed data.
 
 #### `GET /api/observability/metrics` (production readiness phase)
 

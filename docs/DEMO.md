@@ -237,4 +237,10 @@ for why no `POST /api/demo/reset` was needed.
 - A real Razorpay Test Mode payment actually confirmed end to end — the
   confirmation flow (Phase 12) is real, tested code, but no live Razorpay
   Test Mode credentials have been configured in this environment, so no
-  real webhook has ever been received here.
+  real webhook has ever been received here. What *is* now available: a
+  judge-safe "Confirm via signed webhook (TEST/SIMULATION)" button in the
+  demo console (`POST /api/demo/recovery/confirm-test-payment/{id}`) that
+  drives a real signed payload through the exact same confirmation code a
+  genuine webhook would hit — see [README.md § Measuring recovered
+  revenue](../README.md) and [docs/API.md](API.md) for exactly what it
+  does and doesn't prove.

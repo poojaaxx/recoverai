@@ -2,6 +2,13 @@ spring:
   application:
     name: recoverai-backend
 
+  data:
+    web:
+      pageable:
+        # P1.10 security review - without a cap, ?size= on any paginated endpoint
+        # (transactions, global audit) could request an arbitrarily large page.
+        max-page-size: 100
+
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/recoverai}
     username: ${DB_USERNAME:recoverai}
