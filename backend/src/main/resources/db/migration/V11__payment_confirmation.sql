@@ -1,4 +1,4 @@
--- Phase 12: distinguish "execution succeeded" (a provider call went through)
+-- Phase 11: distinguish "execution succeeded" (a provider call went through)
 -- from "payment confirmed" (the customer genuinely paid, proven by a
 -- verified provider webhook). See PaymentConfirmationStatus /
 -- com.recoverai.webhook.PaymentConfirmationService.
@@ -30,7 +30,7 @@ CREATE TABLE webhook_events (
     processed_at         TIMESTAMPTZ,
 
     CONSTRAINT fk_webhook_events_recovery_attempt FOREIGN KEY (recovery_attempt_id)
-        REFERENCES recovery_attempts (id) ON DELETE CASCADE,
+        REFERENCES recovery_attempts (id) ON DELETE SET NULL,
     CONSTRAINT uq_webhook_events_provider_event UNIQUE (provider, provider_event_id)
 );
 
