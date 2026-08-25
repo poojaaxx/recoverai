@@ -21,3 +21,10 @@ recoverai:
   razorpay:
     mode: simulation
     webhook-secret: test_webhook_secret
+  auth:
+    jwt-secret: test-only-jwt-signing-secret-not-used-anywhere-else-0123456789
+    jwt-expiration-minutes: 60
+    demo-admin-username: test.admin
+    demo-admin-password: test-admin-password
+    demo-operator-username: test.operator
+    demo-operator-password: test-operator-password
