@@ -4,8 +4,11 @@ import { api, toApiError, type ApiError } from '../lib/api'
 import { useAsyncAction } from '../hooks/useAsyncAction'
 import { Badge, outcomeTone, policyTone, riskTone } from '../components/Badge'
 import { ScenarioOperations } from '../components/ScenarioOperations'
+import { BatchRecoveryPanel } from '../components/BatchRecoveryPanel'
+import { EscalationQueuePanel } from '../components/EscalationQueuePanel'
 import { outcomeLabel, type PolicyDecision, type RecoveryDemoScenario, type RecoveryDemoSummary } from '../types/demo'
 import type { BatchAgentEvaluationResult, BatchRiskAnalysisResult, RecoveryMetrics, RiskMetrics } from '../types/recovery'
+import { aiProviderLabel } from '../types/recovery'
 import type { ObservabilityMetrics } from '../types/observability'
 
 const currency = new Intl.NumberFormat('en-IN', {
@@ -292,6 +295,7 @@ function PortfolioMetricsPanel({ metrics }: { metrics: RecoveryMetrics }) {
         {stat('Confirmed revenue recovered', currency.format(metrics.confirmedRecoveredRevenue), 'success')}
         {stat('Pending confirmation', currency.format(metrics.pendingConfirmationAmount))}
         {stat('Remaining at risk', currency.format(metrics.amountRemainingAtRisk))}
+        {stat('Distinct customers processed', String(metrics.distinctCustomersProcessed))}
       </div>
     </div>
   )
@@ -356,6 +360,10 @@ function ObservabilityPanel({ observability }: { observability: ObservabilityMet
         Real counts of what the system has actually decided and processed — not a monitoring platform, just a few
         production-readiness signals.
       </p>
+      <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1.5 text-xs">
+        <span className="text-[var(--color-text-secondary)]">Active AI provider:</span>
+        <span className="font-medium text-[var(--color-text-primary)]">{aiProviderLabel(observability.aiProviderMode)}</span>
+      </div>
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {stat('Policy: ALLOW', policyDecisions.allow)}
         {stat('Policy: BLOCK', policyDecisions.block)}
@@ -566,6 +574,9 @@ export function RecoveryDemoPage() {
             {analyzeAllResult && <AnalyzeAllResult result={analyzeAllResult} />}
             {evaluateAllResult && <EvaluateAllResult result={evaluateAllResult} />}
           </div>
+
+          <BatchRecoveryPanel />
+          <EscalationQueuePanel />
 
           <div className="mt-6">
             <PipelineDiagram scenario={selected} />
