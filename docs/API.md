@@ -4,11 +4,11 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (revenue risk engine), Phase 4 (recovery safety / policy engine), Phase 5
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
-Phase 9 (production deployment), and Phase 10 (audit, compliance &
-production hardening) complete — the API described below is live at
-https://recoverai-xrky.onrender.com. Endpoints are documented here as they
-are implemented; see [README.md](../README.md#project-status) for overall
-phase progress and
+Phase 9 (production deployment), Phase 10 (audit, compliance & production
+hardening), and Phase 11 (interactive recovery console) complete — the API
+described below is live at https://recoverai-xrky.onrender.com. Endpoints
+are documented here as they are implemented; see
+[README.md](../README.md#project-status) for overall phase progress and
 [README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
 the deployment record.
 
@@ -480,6 +480,21 @@ not just the live `RECOVERY_AI_RECOMMENDATION`/`RECOVERY_POLICY_EVALUATED`/
 not itself write to the audit trail (see README § Known limitations —
 Phase 8).
 
+### Audit Trail
+
+#### `GET /api/audit/{transactionId}`
+
+**Response `200 OK`** — the transaction's real, persisted `AuditLog` rows
+in chronological order (an array of `AuditTimelineEntryResponse`, the same
+shape used inside the demo endpoint's `auditTimeline` field above), or an
+empty array if none exist yet. **Response `404 Not Found`** if the
+transaction doesn't exist. Pure read - no side effects, unlike
+`GET /api/demo/recovery`/`GET /api/demo/recovery/{externalTransactionId}`
+(which re-run the evaluate/execute pipeline as a side effect of viewing).
+Added so the interactive frontend console can refresh a transaction's
+audit trail independently, for any transaction, not just the 5 curated
+demo scenarios.
+
 ## Planned (not yet implemented)
 
 Per the product spec, the following endpoints will be added in later
@@ -488,7 +503,6 @@ phases:
 - `GET /api/dashboard/summary`
 - `POST /api/recovery/simulate-failure/{transactionId}`
 - `GET /api/recovery/metrics`
-- `GET /api/audit/{transactionId}`
 - `POST /api/demo/seed`
 - `POST /api/webhooks/razorpay`
 

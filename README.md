@@ -38,6 +38,7 @@ See [Project status](#project-status) for what exists today.
 20. [Known limitations](#known-limitations)
 21. [Buildathon Deployment](#buildathon-deployment)
 22. [Audit, Compliance & Production Hardening](#audit-compliance--production-hardening)
+23. [Interactive Recovery Console](#interactive-recovery-console-phase-11)
 
 Further sections (AI architecture, safety architecture, Razorpay
 integration, dataset, evaluation methodology, metrics, failure handling,
@@ -189,10 +190,34 @@ moving to the next.
       only from real `amountRecovered` figures, which stay `0.00` with
       today's mock/Razorpay gateways. See
       [Failure-Recovery Demo](#failure-recovery-demo-phase-8) below.
-- [ ] Phase 9 — Dashboard
-- [ ] Phase 10 — Batch evaluation
-- [ ] Phase 11 — Testing + hardening
-- [ ] Phase 12 — Demo preparation
+- [x] **Phase 9 — Production Deployment.** The application above deployed
+      and verified live (Neon PostgreSQL, Render backend, Vercel
+      frontend), no product behavior changed. See
+      [Live deployment](#12-live-deployment-phase-9) below. *(Supersedes
+      this checklist's original "Phase 9 — Dashboard" placeholder — no
+      general-purpose transaction dashboard exists yet; that remains a
+      future phase.)*
+- [x] **Phase 10 — Audit, Compliance & Production Hardening.** A security/
+      compliance review and hardening pass over the deployed system —
+      global error handling, HTTP security headers, per-client rate
+      limiting, PII masking, dependency cleanup — no safety boundary
+      weakened. See
+      [Audit, Compliance & Production Hardening](#audit-compliance--production-hardening)
+      below.
+- [x] **Phase 11 — Interactive Recovery Console.** The `/demo/recovery`
+      frontend upgraded from a static snapshot into a real operational
+      console — Analyze Risk, Get AI Recommendation, Evaluate Policy, and
+      Execute Recovery are now individually clickable actions calling the
+      real backend, plus a guided step-by-step "Run demo" flow and a live
+      audit-timeline refresh. See
+      [Interactive Recovery Console](#interactive-recovery-console-phase-11)
+      below. *(This checklist's original "Phase 11 — Testing + hardening"
+      placeholder is covered by Phase 10 above.)*
+- [ ] A general-purpose transaction dashboard (any transaction, not just
+      the 5 curated demo scenarios) — still a future phase.
+- [ ] Batch execution and a real, measured "₹X recovered" figure across
+      many transactions — still a future phase, pending a provider-
+      confirmation mechanism (e.g. a Razorpay webhook).
 
 ## Repository layout
 
@@ -1757,3 +1782,81 @@ item rather than an automated assertion) are addressed above.
   illustrative values (see [Revenue Risk Engine](#revenue-risk-engine-phase-3)) —
   unrelated to this phase, restated here for completeness of the
   compliance picture.
+
+## Interactive Recovery Console (Phase 11)
+
+The `/demo/recovery` frontend page (Phase 8) was upgraded from a static,
+one-shot snapshot into a genuinely interactive operational console. **No
+new business logic, no new safety boundary, no architectural change** —
+every action below is a thin call to an already-existing (or, for audit,
+newly added read-only) backend endpoint; the frontend still computes
+nothing itself.
+
+### What changed
+
+- **Per-scenario actions**, each independently clickable with its own
+  loading/error state: **Analyze risk** (`POST /api/revenue-risk/analyze/{id}`),
+  **Get AI recommendation** (`POST /api/recovery-agent/evaluate/{id}` —
+  one real call that returns both the AI's recommendation and the
+  policy's decision on it), **Evaluate policy** (`POST /api/recovery-policy/evaluate/{id}`,
+  a standalone re-check showing every individual policy check pass/fail),
+  **Execute recovery** (`POST /api/recovery/{id}/execute`), and
+  **Refresh audit** (`GET /api/audit/{id}`, new — see below).
+- **A guided "▶ Run demo" flow** per scenario: Analyzing risk → Getting AI
+  recommendation → Ready for execution (or Blocked/Escalated/Stopped,
+  with the real backend reason shown) → stops and waits for an explicit
+  click on "Execute recovery" → Executing → Completed. It never executes
+  automatically - `ALLOW` only ever unlocks the button, exactly as
+  section 2 of this phase's spec required.
+- **`BLOCK`/`ESCALATE`/`STOP` banners** with the real backend reason
+  ("Execution blocked" / "Human approval required" / "Recovery stopped"),
+  and the Execute button is disabled with a visible tooltip explaining
+  why whenever the latest known policy decision isn't `ALLOW` or the
+  transaction has already been executed.
+- **A centralized, typed API client** (`frontend/src/lib/api.ts`) — every
+  backend call goes through it, all reading `VITE_API_BASE_URL` (never a
+  hardcoded URL), with a shared error normalizer (`toApiError`) that
+  turns any Axios failure into a safe, user-facing message and correctly
+  distinguishes a `429`, a `503`, a genuine network error, and a likely
+  Render cold-start (a request that times out or never gets a response)
+  so the UI can say "Connecting to RecoverAI backend… this can take up to
+  a couple of minutes" instead of looking broken.
+- **A new read-only endpoint**, `GET /api/audit/{transactionId}`
+  (`AuditController`) — added because nothing previously exposed a
+  transaction's audit trail outside the bundled demo endpoint, and that
+  endpoint's `GET` re-runs the real evaluate/execute pipeline as a side
+  effect (existing Phase 8 behavior, unchanged), which would be an
+  unwanted side effect for a plain "refresh the audit panel" action. This
+  new endpoint is a pure read: it checks the transaction exists (404 if
+  not) and returns its `AuditLog` rows chronologically — no new decision
+  logic, same projection Phase 8 already used internally.
+
+### Safety boundaries preserved (re-verified, not just re-asserted)
+
+- The execution endpoint still takes only a transaction id — no request
+  body, so the frontend cannot supply its own amount, currency, or
+  action. Verified live: a second execute call on an already-executed
+  transaction is independently blocked by the backend's duplicate-action
+  check (`executed: false`) regardless of what the frontend's button
+  state does.
+- Every policy decision, risk score, and AI recommendation shown is the
+  literal backend response - the frontend performs no client-side
+  authorization, retry-limit, or amount-limit logic anywhere.
+- Verified live end-to-end against production: `demo-easy-recovery`
+  (fresh, unexecuted) → Analyze risk → Get AI recommendation (`ALLOW`) →
+  Execute recovery → `executed: true`, `amountRecovered: 0.00`,
+  transaction status stayed `FAILED` (never falsely `RECOVERED`); a
+  second execute attempt on the same transaction → `executed: false`
+  (duplicate-blocked); `demo-high-value` (`ESCALATE`) → execute attempt →
+  `executed: false`, `provider: null` (no gateway call). Audit timeline
+  confirmed to grow with each real action via the new endpoint.
+
+### Known limitation of this phase's verification
+
+No browser-automation tool is available in this environment, so every
+interaction above was verified at the API level (the exact call each
+button makes, confirmed live against the deployed backend) and by a
+clean `npm run build`/`tsc -b` (which fails on any type mismatch between
+the frontend and the real DTOs) — not by literally clicking through the
+rendered page in a browser. The visual/UX result should be spot-checked
+manually at https://recoverai-bay.vercel.app/demo/recovery.

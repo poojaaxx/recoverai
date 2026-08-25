@@ -73,12 +73,37 @@ Open `http://localhost:5173/demo/recovery`.
    amount, risk badge, AI recommendation, policy decision badge, and an
    outcome badge (`SUCCESS` / `FAILED` / `NOT EXECUTED` / `PENDING
    CONFIRMATION`).
-4. **A detail panel** for the selected scenario: full risk analysis
-   (score, level, factors, reason), AI recommendation (action, confidence,
-   rationale), policy decision (decision, reason, human-approval flag),
-   execution result (provider, simulated flag, amount recovered, failure
-   code), a plain-language safety explanation, and the real audit
-   timeline.
+4. **An interactive operations panel** for the selected scenario (Phase
+   11) — not a static snapshot. Each section has its own real, backend-
+   backed action:
+   - **Analyze risk** / **Re-analyze risk** → `POST /api/revenue-risk/analyze/{id}`
+   - **Get AI recommendation** / **Re-evaluate** → `POST /api/recovery-agent/evaluate/{id}`
+     (this single call also returns the policy's decision on that
+     recommendation - "AI recommends, policy authorizes" from one real
+     round trip)
+   - **Evaluate policy** → `POST /api/recovery-policy/evaluate/{id}`, a
+     standalone re-check of the current recommended action, showing every
+     individual policy check (`RETRY_LIMIT`, `AMOUNT_LIMIT`,
+     `DUPLICATE_ACTION`, ...) pass/fail
+   - **Execute recovery** → `POST /api/recovery/{id}/execute`, enabled
+     only when the latest known policy decision is `ALLOW` and nothing
+     has been executed yet for this transaction - disabled with a visible
+     reason otherwise (`BLOCK`/`ESCALATE`/`STOP` each show their own
+     plain-language banner from the real backend reason)
+   - **Refresh audit** → `GET /api/audit/{id}` (Phase 11, read-only, no
+     side effects - see [docs/API.md § Audit Trail](API.md#audit-trail))
+   - **▶ Run demo** — a guided version of the same steps for the selected
+     scenario, with a visible progress indicator (Analyzing risk → Getting
+     AI recommendation → Ready for execution/Blocked → Executing →
+     Completed) that always stops and waits for an explicit click on
+     "Execute recovery" rather than executing automatically
+
+   None of these buttons compute anything client-side - every value shown
+   (risk score, confidence, policy reason, execution result) is the real
+   backend response, not a local calculation or a fabricated success
+   state. The frontend cannot supply its own amount, currency, or action
+   to the execution endpoint (it takes only a transaction id), cannot
+   force `ALLOW`, and has no bypass for `BLOCK`/`ESCALATE`/`STOP`.
 
 This can also be called directly, without the frontend, via
 `GET /api/demo/recovery` (all 5 scenarios + aggregate metrics) or

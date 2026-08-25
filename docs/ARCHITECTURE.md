@@ -4,9 +4,10 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (revenue risk engine), Phase 4 (recovery safety / policy engine), Phase 5
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
-Phase 9 (production deployment), and Phase 10 (audit, compliance &
-production hardening) complete — this architecture is deployed and live
-(Neon PostgreSQL, Render backend, Vercel frontend; see
+Phase 9 (production deployment), Phase 10 (audit, compliance & production
+hardening), and Phase 11 (interactive recovery console) complete — this
+architecture is deployed and live (Neon PostgreSQL, Render backend,
+Vercel frontend; see
 [README.md § Live deployment](../README.md#12-live-deployment-phase-9)).
 This document will be filled in further as later phases (batch execution,
 recovery metrics, dashboard) land, so that it always accurately reflects
@@ -551,6 +552,52 @@ limitations - most significantly, **no authentication exists on any
 endpoint in this codebase**, a deliberate scope boundary for this phase
 (not a hardening gap that was missed), documented there as the top
 recommendation before any real-payments deployment.
+
+## Interactive Recovery Console (Phase 11)
+
+The `/demo/recovery` page's data layer was reorganized around a real,
+typed API client rather than one bundled backend call:
+
+- **`frontend/src/lib/api.ts`** - every backend call goes through this
+  one typed `api.*` object (`analyzeRisk`, `getAiRecommendation`,
+  `evaluatePolicy`, `executeRecovery`, `auditTimeline`, `transaction`,
+  `riskMetrics`, ...) built on a shared `axios` instance reading
+  `VITE_API_BASE_URL`. `toApiError()` normalizes any failure (network,
+  timeout, 4xx/5xx) into a safe `{status, message, retryAfterSeconds,
+  isLikelyColdStart}` shape - the only place HTTP-error interpretation
+  happens, so no component reaches into raw Axios internals.
+- **`frontend/src/hooks/useAsyncAction.ts`** - a small hook wrapping one
+  backend call with `loading`/`error` state, used by every button in the
+  new console.
+- **`frontend/src/components/ScenarioOperations.tsx`** - replaces the old
+  static `DetailPanel`. Holds one `OperationalState` object per selected
+  scenario (reset on selection change) that starts seeded from the
+  already-known `RecoveryDemoScenario` fields (from `GET /api/demo/recovery`,
+  unchanged) and is progressively replaced by real, explicitly-requested
+  fresher data (`RiskAnalysis`, `AgentEvaluation`, `PolicyDecisionResult`,
+  `ExecutionResult`, audit entries) as the user clicks each action. The
+  guided "Run demo" flow is implemented as a plain sequential `async`
+  function over the same `api.*` calls the standalone buttons use - no
+  separate/duplicated pipeline logic.
+- **`AuditController`** (backend, `GET /api/audit/{transactionId}`) - the
+  one new backend endpoint this phase added. A pure read
+  (`AuditLogRepository.findByTransactionIdOrderByTimestampAsc`, mapped
+  through the existing `AuditTimelineEntryResponse`) - deliberately
+  separate from `GET /api/demo/recovery`'s bundled endpoint, which
+  re-runs the real evaluate/execute pipeline as a side effect of being
+  viewed (existing Phase 8 behavior, intentionally unchanged) and would
+  be an unwanted side effect for a plain "refresh the audit panel" click.
+
+**Deliberate design boundary, unchanged from every earlier phase:** the
+frontend still never decides whether an action is authorized. The
+guided flow's "ready for execution" state is reached only by reading
+`policyDecision.decision === 'ALLOW'` from a real backend response, and
+the Execute button calls `POST /api/recovery/{id}/execute` with no
+request body - the server derives transaction, amount, currency, action,
+attempt number, and idempotency key from persisted state exactly as it
+did before this phase, and independently re-blocks a duplicate execute
+attempt regardless of what the frontend's button state shows (verified
+live - see README § Interactive Recovery Console).
 
 ## Sections to be added in later phases
 
