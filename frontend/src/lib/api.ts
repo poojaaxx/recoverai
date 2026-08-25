@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearSession, getSession, type UserRole } from './auth'
 import type { RecoveryAction, RecoveryDemoScenario, RecoveryDemoSummary } from '../types/demo'
 import type {
   AgentEvaluation,
@@ -29,6 +30,29 @@ export const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
   timeout: REQUEST_TIMEOUT_MS,
 })
+
+/** Attaches the logged-in user's bearer token, when present, to every request. The backend remains the sole authority on whether the token/role is actually allowed to do anything. */
+apiClient.interceptors.request.use((config) => {
+  const session = getSession()
+  if (session) {
+    config.headers.Authorization = `Bearer ${session.token}`
+  }
+  return config
+})
+
+/** A 401 means the token is missing/expired/invalid - clear it and send the user back to the login page rather than showing a confusing error inline. */
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (axios.isAxiosError(error) && error.response?.status === 401 && !error.config?.url?.endsWith('/api/auth/login')) {
+      clearSession()
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  },
+)
 
 export interface ApiError {
   status: number | null
@@ -92,8 +116,18 @@ export function toApiError(error: unknown): ApiError {
  * no client-side computation of risk/AI/policy results, no fabricated
  * data. The backend remains authoritative for every decision.
  */
+export interface LoginResponse {
+  token: string
+  tokenType: string
+  role: UserRole
+  expiresInSeconds: number
+}
+
 export const api = {
   health: () => apiClient.get<HealthStatus>('/api/health'),
+
+  login: (username: string, password: string) =>
+    apiClient.post<LoginResponse>('/api/auth/login', { username, password }),
 
   demoSummary: () => apiClient.get<RecoveryDemoSummary>('/api/demo/recovery'),
   demoScenario: (externalTransactionId: string) =>
