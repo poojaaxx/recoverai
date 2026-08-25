@@ -68,6 +68,34 @@ These are hard boundaries in the code, not just intentions:
 - The frontend never decides anything — it's a thin client over these same
   backend rules, so what you click can't skip a safety check the API
   wouldn't already enforce.
+- Every endpoint except health, login, and the webhook requires a signed-in
+  user (JWT bearer token); only the `MERCHANT_ADMIN` role can execute a
+  recovery action — see [Authentication & authorization](#authentication--authorization)
+  below. This is enforced server-side, before any controller runs, and
+  cannot be bypassed through an unmapped path or a different HTTP verb.
+
+## Authentication & authorization
+
+A stateless JWT login (`POST /api/auth/login`) protects every endpoint
+except `GET /api/health`, login itself, and the Razorpay webhook (which
+keeps its own independent HMAC signature check — see
+[Safety](#safety-in-plain-terms) above). Two roles: `OPERATOR` (read,
+analyze, get AI recommendations, evaluate policy) and `MERCHANT_ADMIN`
+(everything `OPERATOR` can, plus authorizing recovery execution). See
+[docs/API.md § Authentication](docs/API.md) for the exact request/response
+shapes and [docs/ARCHITECTURE.md § Authentication & Authorization](docs/ARCHITECTURE.md)
+for the design and its documented limitations (this is a clean
+application-level mechanism sized for a buildathon project, not a full
+identity platform).
+
+**Demo login** (buildathon judge/reviewer use — intentionally public,
+not a real secret; rotate via `DEMO_ADMIN_PASSWORD`/`DEMO_OPERATOR_PASSWORD`
+for any non-demo deployment):
+
+| Username | Password | Role |
+|---|---|---|
+| `merchant.admin` | `RecoverAI-Judge-Admin-2026` | `MERCHANT_ADMIN` |
+| `operator` | `RecoverAI-Judge-Operator-2026` | `OPERATOR` |
 
 ## Tech stack
 
@@ -119,12 +147,16 @@ cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173`. The `/demo/recovery` page is the interactive
-console — pick a scenario and try Analyze Risk, Get AI Recommendation,
-Evaluate Policy, and Execute Recovery, or use "Run demo" to walk the whole
-pipeline for you. `/transactions` is the general-purpose dashboard —
-search, filter, sort, and inspect any transaction in the database, with
-the same real actions available on each one.
+Open `http://localhost:5173`. You'll land on a login page — sign in with
+the demo credentials above (locally, set `DEMO_SEED_ENABLED=true` and the
+`DEMO_ADMIN_PASSWORD`/`DEMO_OPERATOR_PASSWORD` env vars, or seed a user
+directly via `AppUserRepository` in a test/console). The `/demo/recovery`
+page is the interactive console — pick a scenario and try Analyze Risk,
+Get AI Recommendation, Evaluate Policy, and Execute Recovery (requires
+`MERCHANT_ADMIN`), or use "Run demo" to walk the whole pipeline for you.
+`/transactions` is the general-purpose dashboard — search, filter, sort,
+and inspect any transaction in the database, with the same real actions
+available on each one.
 
 ## Testing
 
@@ -171,9 +203,16 @@ against actual Postgres, not just H2's compatibility mode.
   environment (no credentials available) — both fail closed to a safe
   fallback rather than break or bypass anything.
 - Only INR is currently supported.
-- The `recoveryAttemptStatus` dashboard filter matches "has any recovery
-  attempt in this status," not specifically the latest one — a documented
-  simplification, not a bug.
+- JWTs are stateless and not revocable before expiry (default 8 hours) —
+  there is no server-side session store or logout-everywhere mechanism.
+  Appropriate for this project's scope; a real deployment handling
+  sensitive data would want short-lived tokens plus a refresh flow.
+- Two webhook-rejection counters (invalid signature, malformed payload) in
+  `GET /api/observability/metrics` are in-memory and per-instance (reset on
+  restart) — the same documented simplification already used for rate
+  limiting, since those two failures happen before anything can be
+  persisted. Every other webhook/policy/provider count is a real database
+  aggregate.
 
 ## Project status
 
@@ -189,7 +228,11 @@ against actual Postgres, not just H2's compatibility mode.
 - [x] Interactive recovery console — every action calls the real backend
 - [x] Payment confirmation via a verified, idempotent Razorpay webhook — the only path that can mark a transaction recovered
 - [x] General-purpose transaction dashboard (`/transactions`) — filter, search, sort, and inspect any transaction, not just the curated demo scenarios
-- [ ] A real Razorpay Test Mode payment actually confirmed end to end (needs live Test Mode credentials, not available in this environment)
+- [x] Authentication & role-based authorization (JWT, `MERCHANT_ADMIN`/`OPERATOR`) on every endpoint except health, login, and the signature-gated webhook
+- [x] Dashboard `recoveryAttemptStatus` filter matches the latest recovery attempt, not any historical one
+- [x] Production observability — policy/webhook/provider metrics, structured request-correlated logging
+- [x] Concurrency/load smoke tests — concurrent execution across many transactions, concurrent policy evaluation, concurrent dashboard reads, all measured and logged
+- [ ] A real Razorpay Test Mode payment actually confirmed end to end (needs live Test Mode credentials, not available in this environment — the intended lifecycle is fully verified with the deterministic mock provider instead, see docs/ARCHITECTURE.md)
 
 ## Repository layout
 

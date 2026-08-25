@@ -7,12 +7,21 @@ Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
 Phase 9 (production deployment), Phase 10 (audit, compliance & production
 hardening), Phase 11 (interactive recovery console), Phase 12 (payment
 confirmation, webhook verification & measured revenue recovery), and
-Phase 13 (general-purpose transaction dashboard) complete — the API
-described below is live at https://recoverai-xrky.onrender.com.
-Endpoints are documented here as they are implemented; see
-[README.md](../README.md) for overall phase progress and
-[README.md § Live deployment](../README.md) for
+Phase 13 (general-purpose transaction dashboard), and the production
+readiness phase (authentication/authorization, verified recovery
+lifecycle testing, latest-attempt dashboard filtering, observability)
+complete — the API described below is live at
+https://recoverai-xrky.onrender.com. Endpoints are documented here as
+they are implemented; see [README.md](../README.md) for overall phase
+progress and [README.md § Live deployment](../README.md) for
 the deployment record.
+
+Status update - the production readiness phase added authentication to
+every endpoint below except health, login, and the webhook (see
+[Authentication & authorization](#authentication--authorization-production-readiness-phase)),
+added `GET /api/observability/metrics`, and fixed the
+`recoveryAttemptStatus` dashboard filter to match a transaction's latest
+attempt rather than any attempt.
 
 Status update - Phase 13 evolved `GET /api/transactions` from a minimal
 status-filtered list into a full dashboard API (combinable filters,
@@ -52,6 +61,49 @@ every endpoint below as of this phase:
   with a `Retry-After` header) if a single client exceeds the configured
   window (default 20 requests/60s). See [README.md § Rate limiting](../README.md).
 
+## Authentication & authorization (production readiness phase)
+
+Every endpoint below requires a valid bearer token **except** `GET /api/health`,
+`POST /api/auth/login`, `POST /api/webhooks/razorpay` (independently
+signature-gated - see [Payment confirmation](#payment-confirmation-phase-12)),
+and `/actuator/health`. See
+[README.md § Authentication & authorization](../README.md) and
+[docs/ARCHITECTURE.md § Authentication & Authorization](ARCHITECTURE.md)
+for the design and its documented limitations.
+
+#### `POST /api/auth/login`
+
+```json
+{ "username": "merchant.admin", "password": "..." }
+```
+
+**Response `200 OK`**
+
+```json
+{ "token": "eyJhbGciOi...", "tokenType": "Bearer", "role": "MERCHANT_ADMIN", "expiresInSeconds": 28800 }
+```
+
+**Response `401 Unauthorized`** for any wrong/unknown username or password —
+the same generic `{"error": "Invalid username or password."}` for both, so a
+response can never be used to enumerate valid usernames.
+
+Send the token on every subsequent request: `Authorization: Bearer <token>`.
+
+**Roles**
+
+| Role | Can do |
+|---|---|
+| `OPERATOR` | Everything read/analyze/recommend: transactions, risk, AI recommendations, policy evaluation, audit, metrics, observability |
+| `MERCHANT_ADMIN` | Everything `OPERATOR` can, plus `POST /api/recovery/{id}/execute` — the one endpoint that can cause a real (or simulated) payment-gateway call |
+
+A request without a token gets `401 {"error": "Authentication required."}`.
+An authenticated request without the required role gets
+`403 {"error": "You do not have permission to perform this action."}`. Both
+checks happen in Spring Security's filter chain, before any controller or
+service code runs — there is no endpoint that skips this by being unmapped
+(an unmapped path still requires authentication first) or by taking a
+different HTTP verb.
+
 ## Implemented
 
 ### `GET /api/health`
@@ -87,7 +139,7 @@ transaction in the database — not the 5 curated demo scenarios. See
 | `search` | Case-insensitive substring match on `externalTransactionId`, **or** an exact match if the value parses as a UUID (against the transaction's own id or its customer's id) |
 | `atRiskOnly` | `true` restricts to transactions with a positive `amountAtRisk` |
 | `recoveredOnly` | `true` restricts to `status=RECOVERED` |
-| `recoveryAttemptStatus` | Matches a transaction with **any** recovery attempt in this status (a deliberate simplification over "latest attempt status only") |
+| `recoveryAttemptStatus` | Matches a transaction whose **latest** recovery attempt (highest `attemptNumber`) is in this status — fixed in the production-readiness phase; previously matched "any attempt ever in this status" |
 | `sort` | `NEWEST` (default), `OLDEST`, `AMOUNT_DESC`, `RISK_SCORE_DESC`, `AMOUNT_AT_RISK_DESC`, `RECOVERY_PROBABILITY_DESC` |
 | `page`, `size` | Standard Spring Data pagination; `size` defaults to 20 |
 
@@ -642,7 +694,10 @@ every `RecoveryAttempt` ever created — not just the 5 demo scenarios.
   "recoveryRate": 0.0000,
   "executionSuccessRate": 0.7143,
   "confirmationRate": 0.0000,
-  "pendingConfirmationAmount": 74970.00
+  "pendingConfirmationAmount": 74970.00,
+  "transactionsRecovered": 0,
+  "transactionsEscalated": 6,
+  "transactionsStopped": 4
 }
 ```
 
@@ -652,6 +707,34 @@ With the default mock provider (or an unconfigured Razorpay), it is
 honestly `0.00`, as shown above. `pendingConfirmationAmount` is the sum of
 `amount` across attempts that executed successfully but have not yet been
 confirmed — money genuinely "in flight."
+
+#### `GET /api/observability/metrics` (production readiness phase)
+
+Policy decision, webhook processing, and provider call counts — separate
+from the revenue-focused metrics above. See
+[docs/ARCHITECTURE.md § Production Observability](ARCHITECTURE.md) for
+exactly where each field comes from (database aggregate vs. the two
+in-memory counters).
+
+**Response `200 OK`**
+
+```json
+{
+  "policyDecisions": { "allow": 30, "block": 4, "escalate": 6, "stop": 4 },
+  "webhooks": {
+    "receivedTotal": 12,
+    "processed": 10,
+    "rejected": 1,
+    "ignored": 0,
+    "invalidSignature": 1,
+    "malformedPayload": 0
+  },
+  "providers": [
+    { "provider": "mock", "status": "SUCCESS", "total": 30 },
+    { "provider": "mock", "status": "FAILED", "total": 2 }
+  ]
+}
+```
 
 ## Planned (not yet implemented)
 

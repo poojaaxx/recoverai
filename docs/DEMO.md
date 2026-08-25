@@ -24,6 +24,22 @@ Phase 12 added real payment confirmation via a verified Razorpay webhook
 against the default mock payment provider, so every execution stays
 `paymentConfirmationStatus=NOT_CONFIRMED` forever (no real webhook can ever
 arrive for a mock-generated reference) — see "The five scenarios" below.
+The production readiness phase added a required login step (see
+"Signing in" below) and, separately, verified the complete intended
+confirmation lifecycle end to end with the mock provider — see "How to
+verify the payment confirmation flow" below.
+
+## Signing in
+
+Every page except the login page itself now requires signing in
+(`POST /api/auth/login`) — see
+[README.md § Authentication & authorization](../README.md) for the demo
+credentials. `MERCHANT_ADMIN` can do everything shown below, including
+Execute Recovery; `OPERATOR` can do everything except execute (a 403 with
+a plain-language reason if attempted). Signing in issues a JWT stored in
+the browser only for that session — nothing about who is signed in changes
+what the AI recommends, what the policy engine decides, or what gets
+executed; it only changes whether the request is let through at all.
 
 ## Running the demo
 
@@ -165,6 +181,42 @@ money was recovered. "Payment link created" is not "money recovered" —
 see
 [README.md § Recovery Execution Pipeline](../README.md).
 
+## How to verify the payment confirmation flow
+
+No real Razorpay Test Mode credentials are configured in this
+environment, so this demo cannot show a real webhook arriving from
+Razorpay's servers. What it *can* show — and what actually proves the
+confirmation logic is real, not decorative — is the same code path a real
+webhook would hit, driven by a genuinely HMAC-signed request instead of a
+live one:
+
+1. Run `mvn test -Dtest=EndToEndRecoveryConfirmationTest` from `backend/`
+   (or read `backend/src/test/java/com/recoverai/webhook/EndToEndRecoveryConfirmationTest.java`
+   directly). It executes a transaction through the real pipeline (AI →
+   policy ALLOW → mock gateway), takes the `providerReference` the
+   execution actually produced, builds a payload referencing that exact
+   reference, signs it with `RazorpayWebhookSignature.sign(...)` using the
+   configured webhook secret, and posts it to the real
+   `POST /api/webhooks/razorpay` endpoint.
+2. The test asserts, in order: `amountRecovered` is `0.00` and the
+   transaction is still `FAILED` immediately after execution (execution
+   success alone never confirms anything) → the signed webhook is accepted
+   (`200 {"status":"CONFIRMED"}`) → the `RecoveryAttempt` becomes
+   `paymentConfirmationStatus=CONFIRMED` with `amountRecovered > 0` → the
+   `Transaction` becomes `RECOVERED` → `GET /api/recovery/metrics`
+   reflects the new confirmed count/revenue → the audit trail contains
+   both `RECOVERY_EXECUTION_COMPLETED` and `PAYMENT_RECOVERY_CONFIRMED`.
+3. To see the rejection paths (wrong signature, amount mismatch, currency
+   mismatch, unknown reference, duplicate delivery, already-confirmed
+   attempt), see `PaymentConfirmationServiceTest` — every one of those is
+   exercised against the real endpoint with a real (mis-signed or
+   mismatched, as appropriate) request, never a parallel unsigned bypass.
+
+This is the honest claim: the confirmation flow is real, tested, signature
+-verified code, exercised end to end — not a real Razorpay Test Mode
+payment, which would require live credentials this environment doesn't
+have.
+
 ## Repeatability
 
 Running the demo more than once is safe by construction — no reset step is
@@ -182,8 +234,6 @@ for why no `POST /api/demo/reset` was needed.
 - How to seed the demo dataset over HTTP (`POST /api/demo/seed`) rather
   than only via a test — Phase 8's spec did not require this endpoint, and
   it remains planned.
-- A general-purpose dashboard covering any transaction, not just the 5
-  curated demo ones (Phase 9).
 - A real Razorpay Test Mode payment actually confirmed end to end — the
   confirmation flow (Phase 12) is real, tested code, but no live Razorpay
   Test Mode credentials have been configured in this environment, so no

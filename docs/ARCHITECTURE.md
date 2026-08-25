@@ -6,10 +6,12 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
 Phase 9 (production deployment), Phase 10 (audit, compliance & production
 hardening), Phase 11 (interactive recovery console), Phase 12 (payment
-confirmation, webhook verification & measured revenue recovery), and
-Phase 13 (general-purpose transaction dashboard) complete — this
-architecture is deployed and live (Neon PostgreSQL, Render backend,
-Vercel frontend; see
+confirmation, webhook verification & measured revenue recovery), Phase 13
+(general-purpose transaction dashboard), and the production readiness
+phase (authentication/authorization, verified recovery lifecycle testing,
+latest-attempt dashboard filtering, observability, concurrency/load
+smoke testing) complete — this architecture is deployed and live (Neon
+PostgreSQL, Render backend, Vercel frontend; see
 [README.md § Live deployment](../README.md)).
 
 ## Current state
@@ -722,15 +724,152 @@ data.
   `BLOCK`/`ESCALATE`/`STOP` is only ever read from a real backend
   response, never decided client-side.
 
+## Authentication & Authorization (production readiness phase)
+
+A stateless JWT login layer, deliberately independent from every domain
+service - see `com.recoverai.security.SecurityConfig`'s javadoc for the
+enforced rule and the structural-independence guarantee (no
+`RevenueRiskService`/`RecoveryPolicyService`/`RecoveryExecutionService`/
+`PaymentGateway` ever imports anything from this package).
+
+- **Identity store** (migration V13, `com.recoverai.domain.AppUser`) -
+  `username`, a bcrypt `password_hash`, and a `role`
+  (`MERCHANT_ADMIN`/`OPERATOR`). Deliberately minimal - no profile fields,
+  no password reset flow, no session/refresh-token tracking. `AppUserSeeder`
+  idempotently upserts two demo accounts (gated by the same
+  `DEMO_SEED_ENABLED` flag the rest of the demo dataset uses) from
+  env-configurable passwords - the checked-in defaults are intentionally
+  public, documented judge/demo credentials (see README "Demo login"), not
+  real secrets.
+- **`com.recoverai.security.JwtService`** - HS256, signed with
+  `recoverai.auth.jwt-secret` (`AUTH_JWT_SECRET`). The checked-in default
+  secret is an explicitly documented, insecure, local-dev-only value - any
+  real deployment must override it. A token's `role` claim is authoritative
+  for its lifetime (default 8 hours, `AUTH_JWT_EXPIRATION_MINUTES`) - there
+  is no per-request database lookup or revocation list, a deliberate
+  buildathon simplification (see README "Known limitations").
+- **`com.recoverai.security.JwtAuthenticationFilter`** - reads
+  `Authorization: Bearer <token>`, and if (and only if) the signature
+  verifies and the token is unexpired, populates the security context with
+  a single `ROLE_<role>` authority taken from the token itself - never from
+  a database record a client could otherwise influence.
+- **`com.recoverai.security.SecurityConfig`** - the one place authorization
+  rules live: `/api/health`, `/api/auth/login`, `/api/webhooks/**`, and
+  actuator health are public; `POST /api/recovery/{id}/execute` requires
+  `MERCHANT_ADMIN`; everything else under `/api/**` requires any
+  authenticated user. Also owns CORS (moved here from the now-removed
+  `WebConfig`, same `recoverai.cors.allowed-origins` property, same
+  methods/headers) so Spring Security's filter chain and CORS handling
+  can't disagree with each other.
+- **Frontend** - a login page, a `localStorage`-backed session, an axios
+  request interceptor that attaches the bearer token, and a response
+  interceptor that clears the session and redirects to `/login` on `401`.
+  `RequireAuth` is a route guard for UX only - hiding a page a logged-out
+  visitor would just get 401s from - not a security boundary; every real
+  decision still happens server-side regardless of what the frontend lets
+  through (unchanged design principle from every earlier phase).
+- **Testing** - `AuthenticationIntegrationTest` runs the real Spring
+  Security filter chain over HTTP (unauthenticated rejection, wrong/unknown
+  credentials, valid login, `OPERATOR` forbidden from `/execute`,
+  `MERCHANT_ADMIN` allowed, an unmapped path still requiring auth, the
+  webhook needing no user token at all). Every other existing controller
+  test authenticates via `@WithMockUser(roles = "MERCHANT_ADMIN")` at the
+  class level, so each one keeps exercising its own endpoint's behavior
+  unchanged rather than duplicating the auth tests.
+
+## Real Razorpay Test Mode - what is and isn't verified here
+
+Priority 2 of the production readiness phase asked for the complete
+intended recovery lifecycle to be verified as far as the environment
+allows. No real Razorpay Test Mode credentials have ever been configured
+in this environment, so nothing here claims a live Razorpay payment was
+confirmed. What **is** verified, over real HTTP, with the deterministic
+mock provider (`EndToEndRecoveryConfirmationTest`):
+
+```
+AI recommendation -> policy ALLOW -> execution (mock gateway) -> provider
+reference -> a genuinely HMAC-signed webhook referencing that exact
+reference -> signature verification -> amount/currency verification ->
+RecoveryAttempt confirmed -> amountRecovered > 0 -> Transaction.RECOVERED
+-> recovery metrics updated -> audit trail updated
+```
+
+The test also asserts the negative: immediately after execution (before
+any webhook), `amountRecovered` is `0.00` and the transaction is still
+`FAILED` - execution success alone never confirms anything. Every
+signature/idempotency/amount-mismatch/currency-mismatch/duplicate-webhook
+edge case was already covered by `PaymentConfirmationServiceTest` (Phase
+12) and remains covered unchanged. `RAZORPAY_ENABLED=false` and
+`RAZORPAY_MODE=simulation` remain the safe repository defaults; real
+Razorpay Test Mode is opt-in only via environment variables (`RAZORPAY_ENABLED`,
+`RAZORPAY_MODE=test`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`,
+`RAZORPAY_WEBHOOK_SECRET`), none of which are committed to source control.
+
+## Production Observability
+
+Deliberately modest - a handful of real counts and structured logs, not a
+monitoring platform.
+
+- **Structured logging** - `RequestCorrelationFilter` assigns or propagates
+  an `X-Request-Id`, puts it in SLF4J's MDC for the duration of the
+  request, and logs one line per request (method, path, status, duration).
+  `RecoveryExecutionService.execute()` and
+  `PaymentConfirmationService.processRazorpayWebhook()` add
+  `transactionId`/`providerEventId` to MDC for their own duration.
+  `logback-spring.xml` appends these fields to every log line without
+  changing logger levels (still `application.yml`'s `logging.level.*`) -
+  never a request/response body, header, or secret.
+- **`GET /api/observability/metrics`** (`com.recoverai.execution.ObservabilityService`,
+  a pure read/aggregation layer with the same "no decision logic" discipline
+  as `RecoveryMetricsService`):
+  - **Policy decisions** - `ALLOW`/`BLOCK`/`ESCALATE`/`STOP` counts, grouped
+    from `RECOVERY_POLICY_EVALUATED` audit rows - the one authoritative,
+    deduplicated event `RecoveryPolicyService.evaluate()` writes on every
+    code path that reaches a decision (standalone evaluation, the AI agent,
+    and the execution pipeline all call the same method).
+  - **Webhooks** - `processed`/`rejected`/`ignored` are real counts from the
+    persisted `webhook_events` table. `invalidSignature`/`malformedPayload`
+    are in-memory, per-instance counters (documented limitation - the same
+    kind `RateLimitFilter` already uses) for the two failure modes that
+    happen *before* anything can be persisted.
+  - **Providers** - call counts grouped by `(provider, status)`, derived
+    from `RecoveryAttempt` rows (a row with a non-null `provider` exists
+    exactly when `PaymentGateway.execute()` was actually called) - no new
+    instrumentation was added inside the gateway abstraction itself, which
+    stays a pure execution boundary.
+  - Per-provider-call latency is **not** tracked (a known gap, not
+    fabricated) - only HTTP-level request duration, via
+    `RequestCorrelationFilter`.
+
+## Load and Concurrency Verification
+
+`RecoveryExecutionConcurrencyTest` (Phase 7) and
+`PaymentConfirmationConcurrencyTest` (Phase 12) already prove "at most one
+provider call / one confirmation effect" under genuine thread concurrency
+for a single transaction and a single webhook event, respectively.
+`LoadAndConcurrencySmokeTest` (production readiness phase) covers what
+those don't, entirely against the mock/simulation provider:
+
+- 25 distinct transactions executed concurrently - all succeed
+  independently, one `RecoveryAttempt` each, no cross-talk.
+- 20 concurrent policy evaluations of the *same* transaction - the decision
+  never disagrees with itself (a read-only evaluation of unchanged state
+  must be consistent under concurrency).
+- 20 concurrent dashboard reads (`GET /api/transactions`) over real HTTP -
+  all succeed.
+
+Every test logs the actual measured wall-clock time and per-request
+latency it observed in this environment (H2, single test JVM) - these are
+honest local measurements, not a production capacity claim; this
+codebase makes no claim like "handles N requests/sec in production."
+
 ## Sections to be added in later phases
 
 - Observability / audit trail design (beyond the `AuditLog` entity itself)
+  and per-provider-call latency tracking - see "Production Observability"
+  above for what's covered so far
 - Refund / partial-refund / payment-failed webhook events - the
   `PaymentConfirmationStatus`/`WebhookEvent` model is deliberately shaped
   so these can be added without corrupting the confirmed-revenue metric
   (a new status and a few new event-type branches, not a redesign), but
   none are implemented yet
-- Dashboard filtering by a transaction's *latest* recovery-attempt status
-  specifically (today's `recoveryAttemptStatus` filter matches "has any
-  attempt in this status," a deliberate simplification - see
-  `TransactionRepository#search`'s javadoc)
