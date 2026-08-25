@@ -11,11 +11,14 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -33,7 +36,8 @@ import java.util.UUID;
  * approach (see {@code TransactionDetailResponse}'s PII masking).
  */
 @Entity
-@Table(name = "webhook_events")
+@Table(name = "webhook_events", uniqueConstraints = @UniqueConstraint(
+        name = "uq_webhook_events_provider_event", columnNames = {"provider", "provider_event_id"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -60,6 +64,7 @@ public class WebhookEvent {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recovery_attempt_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     private RecoveryAttempt recoveryAttempt;
 
     @Column(columnDefinition = "text")

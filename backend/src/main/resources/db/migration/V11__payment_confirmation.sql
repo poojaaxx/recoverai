@@ -30,7 +30,7 @@ CREATE TABLE webhook_events (
     processed_at         TIMESTAMPTZ,
 
     CONSTRAINT fk_webhook_events_recovery_attempt FOREIGN KEY (recovery_attempt_id)
-        REFERENCES recovery_attempts (id) ON DELETE SET NULL,
+        REFERENCES recovery_attempts (id) ON DELETE CASCADE,
     CONSTRAINT uq_webhook_events_provider_event UNIQUE (provider, provider_event_id)
 );
 

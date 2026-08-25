@@ -20,3 +20,4 @@ recoverai:
     provider: mock
   razorpay:
     mode: simulation
+    webhook-secret: test_webhook_secret
