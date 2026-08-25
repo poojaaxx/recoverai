@@ -261,6 +261,19 @@ outcomes. Architecturally relevant points not covered there:
   which action was proposed. This is why `policyChecks` in the response is
   variable-length: it only contains checks that were actually evaluated
   before the decision was reached.
+- **`CUSTOMER_CONSENT` (Phase 14) runs second**, right after
+  `TRANSACTION_STATUS` and before any action-specific logic — an opted-out
+  customer (`Customer.recoveryContactAllowed=false`) blocks every
+  autonomous action equally, so it doesn't matter which action was
+  proposed or what the AI recommended. Decision is `BLOCK`, not `STOP`,
+  deliberately: `STOP` now persists a durable `STOPPED` `Transaction`
+  status (see below), which would outlive the customer later opting back
+  in; `BLOCK` causes no lifecycle transition, so consent is simply
+  re-checked fresh on every evaluation. `evaluate()` loads the transaction
+  via `TransactionRepository.findByIdWithCustomer` (a fetch-join, not
+  `findById`) specifically so this check never depends on an open
+  Hibernate session to read the customer — the same idiom Phase 3's batch
+  risk analysis already uses for the same reason.
 - **`RETRY_LIMIT` vs `REPEATED_FAILURE`.** These are deliberately two
   separate checks rather than one: `RETRY_LIMIT` only counts prior
   `RETRY_PAYMENT` attempts (so it fires exactly at the seeded

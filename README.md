@@ -74,6 +74,8 @@ A couple of things I added after the first pass, once I thought harder about wha
 
 None of this is exotic — it's mostly "don't trust anything twice, and fail toward the safe option."
 
+I later added two more of these safety boundaries. First, a simple customer consent flag — if a customer has opted out of recovery contact, the policy engine blocks every autonomous action for them (retry, payment link, reminder — all of it), before the AI's recommendation is even considered. It's a deterministic policy check like any other, not something the frontend decides. Second, a bounded batch execution endpoint: a merchant admin can select a handful of transactions and execute them together, but the server still reloads every one from the database and re-runs the entire AI-and-policy pipeline fresh for each, individually, immediately before executing it. Nothing about "being in a batch" skips a single safety check — it's really just the same single-transaction pipeline called in a loop, with a hard cap on how many transactions and how much money one batch request can touch, enforced server-side and never exceeded even partially.
+
 ## Measuring recovered revenue
 
 This is the part I was most careful about, because it's easy to get wrong (or fake).
@@ -92,7 +94,7 @@ You'll be asked to log in first — use `merchant.admin` / `RecoverAI-Judge-Admi
 
 The `/demo/recovery` console walks through 5 named scenarios — an easy recovery that gets ALLOWed, a high-value transaction that gets ESCALATEd instead of auto-retried, a transaction that already hit its STOP limit, one that's already recovered, and one already escalated. Each button (Analyze Risk, Get AI Recommendation, Evaluate Policy, Execute Recovery) calls the real backend, nothing is precomputed. There's also a `/transactions` dashboard for browsing and filtering any transaction in the database, not just the 5 curated ones, and a `/audit` page showing the same kind of audit trail across the whole portfolio instead of one transaction at a time.
 
-If a transaction is escalated, its detail page shows an "Escalation review" panel — a merchant admin can approve it (which re-runs the whole AI-and-policy check fresh rather than just waving it through) or reject it (which just records that a human looked at it and said no).
+If a transaction is escalated, its detail page shows an "Escalation review" panel — a merchant admin can approve it (which re-runs the whole AI-and-policy check fresh rather than just waving it through) or reject it (which just records that a human looked at it and said no). The recovery console also has a portfolio-wide escalation queue (every currently-escalated transaction, same approve/reject actions) and a bounded batch recovery panel — pick a handful of failed transactions, review the selection and its estimated total, and execute; the response shows exactly what happened to each one, not just one aggregate success flag.
 
 ## Tech stack
 
@@ -104,7 +106,7 @@ If a transaction is escalated, its detail page shows an "Escalation review" pane
 
 ## Build quality
 
-322 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
+346 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
 
 ## A failure I actually hit
 

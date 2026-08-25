@@ -196,6 +196,7 @@ Found`** if no transaction with that ID exists.
   "customerSuccessfulPaymentCount": 7,
   "customerFailedPaymentCount": 1,
   "customerTotalHistoricalValue": 18450.00,
+  "customerRecoveryContactAllowed": true,
   "risk": { "riskScore": 23.39, "riskLevel": "LOW", "...": "..." },
   "recoveryAttempts": [
     {
@@ -213,6 +214,13 @@ Found`** if no transaction with that ID exists.
 **Phase 10 data-minimization** still applies: `customerEmail` inside
 `transaction` is partially masked (e.g. `j***e@example.com`) before it ever
 leaves the server. See [README.md § PII / data-minimization review](../README.md).
+
+`customerRecoveryContactAllowed` (Phase 14) reflects the customer's
+consent flag — when `false`, `RecoveryPolicyService` blocks every
+autonomous recovery action for this customer's transactions (`BLOCK`,
+check name `CUSTOMER_CONSENT`), regardless of AI recommendation, before
+any action-specific policy check runs. Server-side only; no endpoint
+accepts a client-supplied override.
 
 ### Revenue Risk Engine (Phase 3)
 
@@ -348,7 +356,11 @@ though the transaction's own recovery probability is good):
 `policyChecks` is variable-length by design — checks after the one that
 determined the outcome are never evaluated, so a `BLOCK` on an already-
 `RECOVERED` transaction returns just the single `TRANSACTION_STATUS`
-check.
+check. Full check order (Phase 14 adds `CUSTOMER_CONSENT` as the second
+check, right after transaction status): `TRANSACTION_STATUS` →
+`CUSTOMER_CONSENT` → `ACTION_COMPATIBILITY` → `RETRY_LIMIT` (RETRY_PAYMENT
+only) → `REPEATED_FAILURE` → `AMOUNT_LIMIT` → `DUPLICATE_ACTION` →
+`COOLDOWN` → `RISK_FLAGS`.
 
 ### AI Recovery Agent (Phase 5)
 
@@ -539,6 +551,61 @@ still not authorized, it escalates or blocks again and nothing executes.
 Response shape is the same `RecoveryExecutionResponse` as `execute`.
 Rejecting takes an optional `{"reason": "..."}` body, leaves the
 transaction `ESCALATED`, and only records an audit event.
+
+#### `POST /api/recovery/batch/execute` (Phase 14, `MERCHANT_ADMIN` only)
+
+Bounded batch execution — the only multi-transaction execution endpoint.
+Deliberately not "execute everything": every id is bounded by a
+configurable maximum count and a configurable maximum aggregate monetary
+amount, reloaded fresh from the database, and re-run through the exact
+same AI + policy + execution pipeline `execute` above uses (no parallel
+shortcut path). The client selects only which transactions to consider —
+never their amount, action, or authorization.
+
+Request:
+
+```json
+{ "transactionIds": ["b7e6...", "c1a2...", "b7e6..."] }
+```
+
+**Response `400 Bad Request`** if the request is empty, or if the number
+of *distinct* ids exceeds `recoverai.policy.max-batch-transaction-count`
+(default 20) — the whole request is rejected, never silently truncated.
+
+**Response `200 OK`**
+
+```json
+{
+  "totalRequested": 3,
+  "distinctCount": 2,
+  "duplicateRequestCount": 1,
+  "executedCount": 1,
+  "failedProviderCallCount": 0,
+  "alreadyExecutedCount": 0,
+  "blockedCount": 0,
+  "escalatedCount": 1,
+  "stoppedCount": 0,
+  "skippedPortfolioLimitCount": 0,
+  "notFoundCount": 0,
+  "aggregateAmountExecuted": 2499.00,
+  "maxAggregateAmount": 100000,
+  "maxTransactionCount": 20,
+  "results": [
+    { "transactionId": "b7e6...", "externalTransactionId": "demo-easy-recovery", "outcome": "EXECUTED", "policyDecision": "ALLOW", "finalAction": "RETRY_PAYMENT", "recoveryAttemptId": "d2b3...", "amount": 2499.00, "reason": null },
+    { "transactionId": "c1a2...", "externalTransactionId": "demo-high-value", "outcome": "ESCALATED", "policyDecision": "ESCALATE", "finalAction": null, "recoveryAttemptId": null, "amount": 47500.00, "reason": "Transaction amount of 47500.00 exceeds the autonomous recovery limit of 25000; human approval is required." }
+  ]
+}
+```
+
+Duplicate ids in the request are collapsed before processing (a
+transaction is never executed twice within one batch call).
+`SKIPPED_PORTFOLIO_LIMIT` means the policy would have allowed it, but
+executing it would have exceeded `maxAggregateAmount` — skipped without
+ever calling the provider (audited with its own event,
+`RECOVERY_BATCH_SKIPPED_PORTFOLIO_LIMIT`), never partially exceeding the
+ceiling. `executedCount`/`aggregateAmountExecuted` are provider-execution
+figures, exactly like single-transaction `execute` — still not confirmed
+revenue; only a subsequent webhook confirmation moves that.
 
 #### `POST /api/demo/recovery/confirm-test-payment/{transactionId}` (P0.4, `MERCHANT_ADMIN` only)
 
@@ -739,7 +806,8 @@ every `RecoveryAttempt` ever created — not just the 5 demo scenarios.
   "amountRemainingAtRisk": 1159597.89,
   "transactionsRecovered": 0,
   "transactionsEscalated": 6,
-  "transactionsStopped": 4
+  "transactionsStopped": 4,
+  "distinctCustomersProcessed": 27
 }
 ```
 
@@ -756,6 +824,9 @@ never double-counted. `successfulExecutionCount` and
 `SEND_RECOVERY_REMINDER` never inflates either figure.
 `transactionsEscalated`/`transactionsStopped` (P0.1) now reflect the live
 pipeline's own `Transaction.status` transitions, not just seed data.
+`distinctCustomersProcessed` (Phase 14) counts distinct customers with at
+least one `RecoveryAttempt` — customers the system has actually acted on,
+not merely customers with an at-risk transaction.
 
 #### `GET /api/observability/metrics` (production readiness phase)
 
@@ -781,9 +852,15 @@ in-memory counters).
   "providers": [
     { "provider": "mock", "status": "SUCCESS", "total": 30 },
     { "provider": "mock", "status": "FAILED", "total": 2 }
-  ]
+  ],
+  "aiProviderMode": "mock"
 }
 ```
+
+`aiProviderMode` (Phase 14) is the actual configured
+`recoverai.ai.provider` value (`"mock"` or `"anthropic"`), read directly
+from configuration — never inferred, never hardcoded to imply more than
+what's actually running.
 
 ## Planned (not yet implemented)
 
