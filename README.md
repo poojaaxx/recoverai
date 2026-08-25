@@ -67,36 +67,52 @@ Recovered Revenue Metrics     counts only money a verified confirmation actually
 Every stage above is a real, tested code path, not a diagram drawn ahead of
 the implementation — see [Build quality](#build-quality--why-trust-it) below.
 
-## Safety, in plain terms
+## AI Judgment: what AI does vs. what AI cannot do
 
-These are hard boundaries in the code, not just intentions:
+**AI recommends. Policy authorizes. Execution executes. Webhook
+confirmation measures.**
 
-- The AI recommends an action; it never authorizes or executes one.
-- A deterministic policy engine (`RecoveryPolicyService`) is the only thing
-  that can approve a money-moving action — it checks retry limits, amount
-  ceilings, duplicate-action windows, and prior escalations against the
-  database, never against anything the AI or the frontend supplies.
-- Real payments only ever happen through Razorpay's **Test Mode**, and only
-  when explicitly turned on (two separate opt-ins). By default, every
-  execution runs through a mock gateway that's honest about being simulated.
-- Nothing in this system marks a transaction "recovered" or reports revenue
-  collected unless a payment was genuinely confirmed by a verified provider
-  webhook. Simulated runs stay at ₹0 recovered — always.
-- The webhook endpoint verifies the provider's signature over the raw
-  request body before trusting a single field of it, matches a confirmation
-  to a specific recovery attempt (never by amount alone or a client
-  -supplied id), independently re-checks the paid amount/currency, and is
-  idempotent — a duplicated or concurrently-replayed delivery can never
-  double-count revenue. There is no frontend or API path that can mark a
-  transaction recovered directly.
-- The frontend never decides anything — it's a thin client over these same
-  backend rules, so what you click can't skip a safety check the API
-  wouldn't already enforce.
-- Every endpoint except health, login, and the webhook requires a signed-in
-  user (JWT bearer token); only the `MERCHANT_ADMIN` role can execute a
-  recovery action — see [Authentication & authorization](#authentication--authorization)
-  below. This is enforced server-side, before any controller runs, and
-  cannot be bypassed through an unmapped path or a different HTTP verb.
+| AI does | AI cannot do |
+|---|---|
+| Analyze transaction, customer, and risk context | Authorize a payment |
+| Recommend one recovery action | Bypass retry limits |
+| Provide a confidence score | Bypass amount limits |
+| Provide a concise, structured rationale | Override duplicate-action protection |
+| Estimate expected recovery value | Override a human-approval requirement |
+| | Override a STOP decision |
+| | Write a `RecoveryAttempt` record |
+| | Call `PaymentGateway` directly |
+| | Mark a transaction `RECOVERED` |
+
+The right-hand column isn't a policy promise, it's a structural fact: the
+AI recommendation service (`RecoveryAgentService`) has no dependency on
+`PaymentGateway` or the attempt-persistence layer, and every recommendation
+still passes through the same deterministic `RecoveryPolicyService` check
+whether it came from the AI or a test calling the policy engine directly.
+The AI also never exposes model chain-of-thought — only the structured
+action/confidence/rationale fields above.
+
+A deterministic policy engine (`RecoveryPolicyService`) is the *only* thing
+that can approve a money-moving action — it checks retry limits, amount
+ceilings, duplicate-action windows, and prior escalations against the
+database, never against anything the AI or the frontend supplies. There is
+no frontend or API path that can mark a transaction recovered directly, and
+no endpoint — mapped or not — skips the authentication check below.
+
+## Why AI is used only there
+
+Deciding **which** recovery action fits a given failure benefits from
+weighing soft, contextual signals — failure category, customer history,
+amount, prior attempts — exactly the kind of judgment call an LLM is good
+at.
+
+Deciding whether that action is **allowed to run** is a financial safety
+question, not a judgment call. It has to be predictable, reproducible, and
+auditable: the same inputs must always produce the same decision, and a
+human reviewing an incident needs to be able to reconstruct exactly why the
+system did what it did. That's why authorization stays in deterministic
+code, never a model call — this is a deliberate boundary, not a missing
+feature.
 
 ## Authentication & authorization
 
