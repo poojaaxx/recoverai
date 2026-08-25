@@ -216,4 +216,51 @@ export interface RecoveryMetrics {
   transactionsRecovered: number
   transactionsEscalated: number
   transactionsStopped: number
+  /** Phase 14 — distinct customers with at least one recovery attempt, i.e. customers the system has actually acted on. */
+  distinctCustomersProcessed: number
+}
+
+/** Phase 14, section 2/5 — bounded batch recovery execution. `transactionIds` is the only thing a client controls; amount/action/authorization are always server-derived. */
+export interface BatchExecutionRequest {
+  transactionIds: string[]
+}
+
+export type BatchExecutionOutcome =
+  | 'EXECUTED'
+  | 'FAILED_PROVIDER_CALL'
+  | 'ALREADY_EXECUTED'
+  | 'BLOCKED'
+  | 'ESCALATED'
+  | 'STOPPED'
+  | 'SKIPPED_PORTFOLIO_LIMIT'
+  | 'NOT_FOUND'
+
+export interface BatchExecutionItemResult {
+  transactionId: string
+  externalTransactionId: string | null
+  outcome: BatchExecutionOutcome
+  policyDecision: PolicyDecision | null
+  finalAction: RecoveryAction | null
+  recoveryAttemptId: string | null
+  amount: number | null
+  reason: string | null
+}
+
+/** Response of `POST /api/recovery/batch/execute`. `executedCount` is a provider-execution figure, never confirmed revenue — only a subsequent webhook confirmation can report that. */
+export interface BatchExecutionResponse {
+  totalRequested: number
+  distinctCount: number
+  duplicateRequestCount: number
+  executedCount: number
+  failedProviderCallCount: number
+  alreadyExecutedCount: number
+  blockedCount: number
+  escalatedCount: number
+  stoppedCount: number
+  skippedPortfolioLimitCount: number
+  notFoundCount: number
+  aggregateAmountExecuted: number
+  maxAggregateAmount: number
+  maxTransactionCount: number
+  results: BatchExecutionItemResult[]
 }

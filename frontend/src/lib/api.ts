@@ -5,6 +5,8 @@ import type {
   AgentEvaluation,
   AuditEntry,
   BatchAgentEvaluationResult,
+  BatchExecutionRequest,
+  BatchExecutionResponse,
   BatchRiskAnalysisResult,
   ExecutionResult,
   GlobalAuditFilters,
@@ -177,6 +179,16 @@ export const api = {
     apiClient.post<PolicyDecisionResult>(`/api/recovery-policy/evaluate/${transactionId}`, { action }),
 
   executeRecovery: (transactionId: string) => apiClient.post<ExecutionResult>(`/api/recovery/${transactionId}/execute`),
+
+  /**
+   * Phase 14 — bounded batch execution. MERCHANT_ADMIN only. The server
+   * reloads every transaction and re-runs the full AI + policy pipeline
+   * fresh for each one immediately before executing; this call only
+   * selects which transactions to consider, never their amount, action,
+   * or authorization.
+   */
+  executeBatch: (request: BatchExecutionRequest) =>
+    apiClient.post<BatchExecutionResponse>('/api/recovery/batch/execute', request),
 
   /** P1.1 — approving never itself authorizes execution: the backend re-runs the full AI+policy pipeline fresh and only executes if that fresh check still says ALLOW. MERCHANT_ADMIN only. */
   approveEscalation: (transactionId: string) => apiClient.post<ExecutionResult>(`/api/recovery/${transactionId}/approve`),

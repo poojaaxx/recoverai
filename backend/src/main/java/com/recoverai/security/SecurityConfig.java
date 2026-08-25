@@ -40,7 +40,8 @@ import java.util.List;
  * <p>
  * Everything else under {@code /api/**} requires a valid bearer token.
  * {@code POST /api/recovery/{id}/execute}, {@code .../approve}, {@code
- * .../reject}, and {@code POST /api/demo/recovery/confirm-test-payment/{id}}
+ * .../reject}, {@code POST /api/recovery/batch/execute}, and {@code POST
+ * /api/demo/recovery/confirm-test-payment/{id}}
  * all additionally require the {@code MERCHANT_ADMIN} role - every one is a
  * write action with a real effect on transaction/attempt state (execute can
  * cause a real or simulated payment-gateway call; approve re-runs the full
@@ -83,6 +84,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/webhooks/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/execute").hasRole("MERCHANT_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/recovery/batch/execute").hasRole("MERCHANT_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/approve").hasRole("MERCHANT_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/reject").hasRole("MERCHANT_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/demo/recovery/confirm-test-payment/*").hasRole("MERCHANT_ADMIN")

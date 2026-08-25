@@ -216,6 +216,40 @@ class AuthenticationIntegrationTest {
     }
 
     @Test
+    void batchExecuteEndpoint_requiresAuthentication() throws Exception {
+        Transaction transaction = seedTransaction();
+
+        mockMvc.perform(post("/api/recovery/batch/execute")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"transactionIds\":[\"%s\"]}".formatted(transaction.getId())))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void batchExecuteEndpoint_operatorRole_isForbidden() throws Exception {
+        Transaction transaction = seedTransaction();
+        String token = login(OPERATOR_USERNAME, OPERATOR_PASSWORD);
+
+        mockMvc.perform(post("/api/recovery/batch/execute")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"transactionIds\":[\"%s\"]}".formatted(transaction.getId())))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void batchExecuteEndpoint_merchantAdminRole_isAllowed() throws Exception {
+        Transaction transaction = seedTransaction();
+        String token = login(ADMIN_USERNAME, ADMIN_PASSWORD);
+
+        mockMvc.perform(post("/api/recovery/batch/execute")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"transactionIds\":[\"%s\"]}".formatted(transaction.getId())))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void confirmTestPaymentEndpoint_requiresAuthentication() throws Exception {
         Transaction transaction = seedTransaction();
 

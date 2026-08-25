@@ -1,7 +1,12 @@
 package com.recoverai.controller;
 
+import com.recoverai.dto.BatchExecutionRequest;
+import com.recoverai.dto.BatchExecutionResponse;
 import com.recoverai.dto.RecoveryExecutionResponse;
 import com.recoverai.dto.RecoveryMetricsResponse;
+import com.recoverai.execution.BatchRecoveryExecutionService;
+import com.recoverai.execution.BatchSizeExceededException;
+import com.recoverai.execution.EmptyBatchRequestException;
 import com.recoverai.execution.EscalationNotPendingException;
 import com.recoverai.execution.RecoveryExecutionService;
 import com.recoverai.execution.RecoveryMetricsService;
@@ -18,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -39,10 +45,26 @@ public class RecoveryExecutionController {
 
     private final RecoveryExecutionService recoveryExecutionService;
     private final RecoveryMetricsService recoveryMetricsService;
+    private final BatchRecoveryExecutionService batchRecoveryExecutionService;
 
     @PostMapping("/{transactionId}/execute")
     public RecoveryExecutionResponse execute(@PathVariable UUID transactionId) {
         return recoveryExecutionService.execute(transactionId);
+    }
+
+    /**
+     * Phase 14 - bounded batch execution (see {@link BatchRecoveryExecutionService}).
+     * MERCHANT_ADMIN only (see SecurityConfig - matched both by the explicit
+     * {@code /api/recovery/batch/execute} rule and, redundantly, by the
+     * general {@code /api/recovery/*&#47;execute} pattern). Every id is
+     * reloaded from the database and re-run through the full AI + policy
+     * pipeline before anything executes; the client selects only which
+     * transactions to consider, never their amount, action, or authorization.
+     */
+    @PostMapping("/batch/execute")
+    public BatchExecutionResponse executeBatch(@RequestBody BatchExecutionRequest request, Authentication authentication) {
+        List<UUID> ids = request == null ? null : request.transactionIds();
+        return batchRecoveryExecutionService.executeBatch(ids, authentication.getName());
     }
 
     /**
@@ -78,5 +100,10 @@ public class RecoveryExecutionController {
     @ExceptionHandler(EscalationNotPendingException.class)
     public ResponseEntity<Map<String, String>> handleNotPending(EscalationNotPendingException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler({BatchSizeExceededException.class, EmptyBatchRequestException.class})
+    public ResponseEntity<Map<String, String>> handleInvalidBatchRequest(RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", e.getMessage()));
     }
 }

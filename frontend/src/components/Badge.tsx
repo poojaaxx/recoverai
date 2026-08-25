@@ -49,6 +49,27 @@ export function policyTone(decision: string | null | undefined): BadgeTone {
   }
 }
 
+/** Phase 14 — batch execution per-item outcome. */
+export function batchOutcomeTone(outcome: string): BadgeTone {
+  switch (outcome) {
+    case 'EXECUTED':
+      return 'success'
+    case 'FAILED_PROVIDER_CALL':
+    case 'NOT_FOUND':
+      return 'danger'
+    case 'ESCALATED':
+    case 'SKIPPED_PORTFOLIO_LIMIT':
+      return 'warning'
+    case 'BLOCKED':
+    case 'STOPPED':
+      return 'danger'
+    case 'ALREADY_EXECUTED':
+      return 'accent'
+    default:
+      return 'neutral'
+  }
+}
+
 export function outcomeTone(outcome: string): BadgeTone {
   switch (outcome) {
     case 'SUCCESS':

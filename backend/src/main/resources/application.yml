@@ -140,6 +140,10 @@ recoverai:
     # type) before another may run. 0 disables it (default) so it never
     # interferes with the demo, which is meant to be usable back-to-back.
     min-cooldown-minutes-between-actions: 0
+    # Phase 14 - bounded batch execution / portfolio-wide safety limits.
+    # See RecoveryPolicyProperties and BatchRecoveryExecutionService.
+    max-batch-transaction-count: ${BATCH_MAX_TRANSACTION_COUNT:20}
+    max-batch-aggregate-amount: ${BATCH_MAX_AGGREGATE_AMOUNT:100000}
 
   # Phase 3 - Revenue Risk Engine. All weights below are application-invented,
   # illustrative synthetic values for this prototype - not a statistically

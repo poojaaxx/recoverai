@@ -50,4 +50,23 @@ public class RecoveryPolicyProperties {
      * back-to-back.
      */
     private long minCooldownMinutesBetweenActions = 0;
+
+    /**
+     * Phase 14 - maximum number of distinct transactions accepted in a
+     * single {@code POST /api/recovery/batch/execute} request. A request
+     * naming more than this is rejected outright (400) rather than
+     * silently truncated, so a batch never partially processes an
+     * oversized request.
+     */
+    private int maxBatchTransactionCount = 20;
+
+    /**
+     * Phase 14 - portfolio-wide safety ceiling: the maximum aggregate
+     * monetary amount (sum of transaction amounts actually executed) a
+     * single batch may spend. Enforced before each transaction's
+     * provider call, never after - see {@code BatchRecoveryExecutionService}.
+     * The ceiling is never partially exceeded: a transaction that would
+     * push the running total over this amount is skipped, not executed.
+     */
+    private BigDecimal maxBatchAggregateAmount = new BigDecimal("100000");
 }
