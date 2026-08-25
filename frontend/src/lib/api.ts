@@ -13,6 +13,7 @@ import type {
   RiskMetrics,
   TransactionDetail,
 } from '../types/recovery'
+import type { TransactionFullDetail, TransactionListFilters, TransactionListPage } from '../types/transaction'
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
 
@@ -99,6 +100,11 @@ export const api = {
     apiClient.get<RecoveryDemoScenario>(`/api/demo/recovery/${externalTransactionId}`),
 
   transaction: (transactionId: string) => apiClient.get<TransactionDetail>(`/api/transactions/${transactionId}`),
+
+  /** General-purpose transaction dashboard (any transaction, not just the 5 curated demo scenarios) - server-side filtering/search/sort/pagination. */
+  transactions: (filters: TransactionListFilters) => apiClient.get<TransactionListPage>('/api/transactions', { params: filters }),
+  transactionFullDetail: (transactionId: string) =>
+    apiClient.get<TransactionFullDetail>(`/api/transactions/${transactionId}/detail`),
 
   analyzeRisk: (transactionId: string) => apiClient.post<RiskAnalysis>(`/api/revenue-risk/analyze/${transactionId}`),
   getRisk: (transactionId: string) => apiClient.get<RiskAnalysis>(`/api/revenue-risk/${transactionId}`),

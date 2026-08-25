@@ -153,4 +153,7 @@ export interface RecoveryMetrics {
   executionSuccessRate: number
   confirmationRate: number
   pendingConfirmationAmount: number
+  transactionsRecovered: number
+  transactionsEscalated: number
+  transactionsStopped: number
 }
