@@ -92,4 +92,30 @@ public class RecoveryAttempt {
     @Column(name = "executed_at", nullable = false)
     @Builder.Default
     private Instant executedAt = Instant.now();
+
+    /**
+     * Whether a verified provider webhook has confirmed this attempt as an
+     * actual customer payment (migration V11, Phase 11) — strictly separate
+     * from {@link #status}, which only reflects whether the provider call
+     * itself succeeded. See {@link PaymentConfirmationStatus} and {@code
+     * com.recoverai.webhook.PaymentConfirmationService}.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_confirmation_status", nullable = false, length = 20)
+    @Builder.Default
+    private PaymentConfirmationStatus paymentConfirmationStatus = PaymentConfirmationStatus.NOT_CONFIRMED;
+
+    /** The amount a verified webhook reported as actually paid — set only when {@link #paymentConfirmationStatus} is {@code CONFIRMED} or {@code REJECTED}. */
+    @Column(name = "confirmed_amount", precision = 14, scale = 2)
+    private BigDecimal confirmedAmount;
+
+    @Column(name = "confirmed_currency", length = 3)
+    private String confirmedCurrency;
+
+    /** Razorpay's payment id (distinct from {@link #providerReference}, which is the payment *link* id this attempt created). */
+    @Column(name = "provider_payment_id")
+    private String providerPaymentId;
+
+    @Column(name = "confirmed_at")
+    private Instant confirmedAt;
 }
