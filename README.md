@@ -245,6 +245,21 @@ figure — it reports `₹0.00` confirmed recovered revenue, honestly, because
 that is what has actually been confirmed. That claim only changes the day
 real Test Mode credentials and a live webhook are configured.
 
+## What happens when things go wrong
+
+Failure handling isn't an afterthought here — it's most of the design:
+
+| Scenario | What happens |
+|---|---|
+| AI recommends RETRY, but the transaction already exhausted its retry budget | Policy returns **STOP** — no gateway call is made |
+| AI recommends RETRY, but the amount exceeds the autonomous recovery limit | Policy returns **ESCALATE** — human approval required, no gateway call |
+| Provider declines the payment | `RecoveryAttempt` is marked `FAILED`; the transaction is **not** marked recovered; an audit event is recorded |
+| Provider times out / is unavailable | A structured failure result — no automatic unsafe retry |
+| Duplicate execution request (same attempt) | Policy's duplicate-action check plus a real database unique constraint — at most one provider call |
+| Two concurrent execution requests for the same transaction | Proven under genuine thread concurrency: exactly one provider call, one `RecoveryAttempt`; the other request resolves to the same result |
+| Webhook delivered twice (replay) | Idempotent via a real database constraint — no double confirmation, no double-counted revenue |
+| Repeated failures on the same transaction | A stopping rule caps total recovery actions — automation does not retry forever |
+
 ## Real vs. simulated
 
 | Component | Current state |
@@ -260,6 +275,30 @@ real Test Mode credentials and a live webhook are configured.
 | Recovery metrics | Real backend aggregates, computed only from confirmed recovery |
 | Demo dataset | Synthetic, deterministic |
 | Real recovered-money figure | Not claimed — reports `₹0.00` honestly, pending a real provider confirmation |
+
+## Demo story
+
+Five named scenarios, each demonstrating a different corner of the safety
+design (`GET /api/demo/recovery`, or the `/demo/recovery` console):
+
+1. **Easy recovery** — AI recommends a retry, the amount is well within
+   limits, policy **ALLOW**s it, and the bounded recovery path executes.
+   Shown as "pending confirmation," never as money recovered.
+2. **High-value transaction** — AI still recommends a retry, but the amount
+   exceeds the autonomous recovery limit, so policy overrides to
+   **ESCALATE**. This is the clearest demonstration of "AI recommends,
+   policy authorizes": the two disagree, and policy wins.
+3. **Repeated failure** — the transaction already exhausted its automated
+   retry budget; policy returns **STOP** again. Automation does not retry
+   forever.
+4. **Already recovered** — policy **BLOCK**s any further action; there's
+   nothing left to do, and the system correctly refuses to touch it again.
+5. **Already escalated** — awaiting manual review; policy **ESCALATE**s
+   again rather than silently retrying behind a human's back.
+
+No scenario in this demo claims money was recovered unless a verified
+webhook actually confirmed it — see
+[Measuring real recovered revenue](#measuring-real-recovered-revenue) above.
 
 ## Known limitations
 
@@ -278,6 +317,38 @@ real Test Mode credentials and a live webhook are configured.
   limiting, since those two failures happen before anything can be
   persisted. Every other webhook/policy/provider count is a real database
   aggregate.
+
+## Failure story: a real production incident
+
+Not everything about building this went smoothly, and that's worth saying
+out loud.
+
+**What broke:** a Flyway migration (`V11`) was edited in place after it had
+already been applied to the production database. Flyway detected the
+resulting checksum mismatch and refused to run further migrations — every
+subsequent deploy failed.
+
+**Why:** Flyway's safety model depends on an already-applied migration's
+file never changing; editing it broke that guarantee for every future
+deploy that checksums against the recorded value.
+
+**How it was diagnosed:** Render's deploy logs showed the exact mismatch
+(`Applied to database: X -> Resolved locally: Y`). The live site stayed up
+throughout — Render keeps serving the last successful deploy when a new one
+fails its checks.
+
+**How it was fixed:** a first attempt to byte-for-byte restore the original
+migration didn't resolve it, since the exact originally-applied bytes
+couldn't be reconstructed with certainty. The actual fix was Flyway's own
+supported mechanism — a one-time `flyway.repair()` call that recalculates
+the recorded checksums to match the current files, without touching any
+already-applied SQL. A new migration (`V12`) carried the intended change
+forward correctly, and the repair step was removed immediately after
+confirming the next deploy succeeded.
+
+**Verification:** the next deploy was watched live until health, the
+transaction dashboard, and the demo endpoint all confirmed correct
+behavior — not just "the build succeeded."
 
 ## Project status
 
