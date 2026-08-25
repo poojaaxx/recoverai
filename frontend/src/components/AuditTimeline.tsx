@@ -33,11 +33,11 @@ const ACTOR_LABELS: Record<string, string> = {
   SEED_SCRIPT: 'Seed Script',
 }
 
-function humanizeEventType(eventType: string): string {
+export function humanizeEventType(eventType: string): string {
   return EVENT_TYPE_LABELS[eventType] ?? eventType.replaceAll('_', ' ')
 }
 
-function humanizeActor(actor: string): string {
+export function humanizeActor(actor: string): string {
   return ACTOR_LABELS[actor] ?? actor
 }
 

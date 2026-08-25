@@ -7,6 +7,8 @@ import type {
   BatchAgentEvaluationResult,
   BatchRiskAnalysisResult,
   ExecutionResult,
+  GlobalAuditFilters,
+  GlobalAuditPage,
   HealthStatus,
   PolicyDecisionResult,
   RecoveryMetrics,
@@ -98,14 +100,23 @@ export function toApiError(error: unknown): ApiError {
         }
       case 404:
         return { status, message: 'Not found.', retryAfterSeconds, isLikelyColdStart: false }
-      case 429:
+      case 409:
         return {
           status,
-          message: 'Too many requests — please slow down and try again shortly.',
+          message: 'This action could not be completed in the current state. Nothing was executed.',
           retryAfterSeconds,
           isLikelyColdStart: false,
         }
+      case 429:
+        return {
+          status,
+          message: 'Too many requests. No recovery was executed. Please wait and try again.',
+          retryAfterSeconds,
+          isLikelyColdStart: false,
+        }
+      case 502:
       case 503:
+      case 504:
         return {
           status,
           message: 'The backend is temporarily unavailable. Please try again shortly.',
@@ -166,8 +177,16 @@ export const api = {
     apiClient.post<PolicyDecisionResult>(`/api/recovery-policy/evaluate/${transactionId}`, { action }),
 
   executeRecovery: (transactionId: string) => apiClient.post<ExecutionResult>(`/api/recovery/${transactionId}/execute`),
+
+  /** P1.1 — approving never itself authorizes execution: the backend re-runs the full AI+policy pipeline fresh and only executes if that fresh check still says ALLOW. MERCHANT_ADMIN only. */
+  approveEscalation: (transactionId: string) => apiClient.post<ExecutionResult>(`/api/recovery/${transactionId}/approve`),
+  rejectEscalation: (transactionId: string, reason?: string) =>
+    apiClient.post<{ status: string }>(`/api/recovery/${transactionId}/reject`, reason ? { reason } : undefined),
   recoveryMetrics: () => apiClient.get<RecoveryMetrics>('/api/recovery/metrics'),
   observabilityMetrics: () => apiClient.get<ObservabilityMetrics>('/api/observability/metrics'),
 
   auditTimeline: (transactionId: string) => apiClient.get<AuditEntry[]>(`/api/audit/${transactionId}`),
+
+  /** P1.4 — portfolio-wide, filterable, paginated audit feed (newest first by default). */
+  globalAudit: (filters: GlobalAuditFilters) => apiClient.get<GlobalAuditPage>('/api/audit', { params: filters }),
 }

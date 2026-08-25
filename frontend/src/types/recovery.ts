@@ -155,6 +155,35 @@ export interface TestPaymentConfirmation {
   confirmedCurrency: string | null
 }
 
+/** One row of `GET /api/audit` (P1.4) — the portfolio-wide audit feed, distinct from the per-transaction timeline only in that it also identifies which transaction each event belongs to. */
+export interface GlobalAuditEntry {
+  id: string
+  transactionId: string
+  externalTransactionId: string
+  eventType: string
+  actor: string
+  decision: string | null
+  reason: string | null
+  timestamp: string
+}
+
+export interface GlobalAuditFilters {
+  eventType?: string
+  actor?: string
+  transactionId?: string
+  page?: number
+  size?: number
+}
+
+/** Matches Spring Data's `Page<T>` JSON shape — same convention `TransactionListPage` already uses. */
+export interface GlobalAuditPage {
+  content: GlobalAuditEntry[]
+  totalElements: number
+  totalPages: number
+  number: number
+  size: number
+}
+
 /** Response of `POST /api/revenue-risk/analyze-all`. */
 export interface BatchRiskAnalysisResult {
   transactionsAnalyzed: number

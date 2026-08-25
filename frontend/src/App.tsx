@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage'
 import { RecoveryDemoPage } from './pages/RecoveryDemoPage'
 import { TransactionsPage } from './pages/TransactionsPage'
 import { TransactionDetailPage } from './pages/TransactionDetailPage'
+import { AuditFeedPage } from './pages/AuditFeedPage'
 import { RequireAuth } from './components/RequireAuth'
 
 function App() {
@@ -33,6 +34,14 @@ function App() {
           element={
             <RequireAuth>
               <TransactionDetailPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/audit"
+          element={
+            <RequireAuth>
+              <AuditFeedPage />
             </RequireAuth>
           }
         />

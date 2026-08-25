@@ -145,6 +145,8 @@ export function TransactionDetailPage() {
   const policyAction = useAsyncAction(() => api.evaluatePolicy(id!, recommendedAction ?? 'RETRY_PAYMENT').then((r) => r.data))
   const executeAction = useAsyncAction(() => api.executeRecovery(id!).then((r) => r.data))
   const auditAction = useAsyncAction(() => api.auditTimeline(id!).then((r) => r.data))
+  const approveAction = useAsyncAction(() => api.approveEscalation(id!).then((r) => r.data))
+  const rejectAction = useAsyncAction(() => api.rejectEscalation(id!).then((r) => r.data))
 
   async function handleAnalyzeRisk() {
     const result = await analyzeAction.run()
@@ -175,6 +177,19 @@ export function TransactionDetailPage() {
   async function handleRefreshAudit() {
     const result = await auditAction.run()
     if (result) setAudit(result)
+  }
+
+  async function handleApprove() {
+    const result = await approveAction.run()
+    if (result) {
+      setExecution(result)
+      load()
+    }
+  }
+
+  async function handleReject() {
+    const result = await rejectAction.run()
+    if (result) load()
   }
 
   if (!id) return null;
@@ -315,6 +330,26 @@ export function TransactionDetailPage() {
           <p className="text-sm text-[var(--color-text-secondary)]">No policy decision yet — get an AI recommendation first.</p>
         )}
       </Section>
+
+      {t.status === 'ESCALATED' && (
+        <Section title="Escalation review">
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            This transaction is escalated and will not execute automatically. Approving does not itself authorize
+            execution — it re-runs the full AI and policy pipeline fresh, and only executes if that fresh check
+            still says ALLOW. Rejecting leaves it escalated and only records that a human declined.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <ActionButton onClick={handleApprove} loading={approveAction.loading} variant="primary">
+              Approve → re-evaluate
+            </ActionButton>
+            <ActionButton onClick={handleReject} loading={rejectAction.loading}>
+              Reject
+            </ActionButton>
+          </div>
+          {approveAction.error && <InlineError error={approveAction.error} onRetry={handleApprove} />}
+          {rejectAction.error && <InlineError error={rejectAction.error} onRetry={handleReject} />}
+        </Section>
+      )}
 
       <Section
         title="Recovery"

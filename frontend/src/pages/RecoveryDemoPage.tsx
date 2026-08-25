@@ -457,6 +457,12 @@ export function RecoveryDemoPage() {
           >
             All transactions →
           </Link>
+          <Link
+            to="/audit"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-1)] px-4 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-2)]"
+          >
+            Audit activity →
+          </Link>
           <button
             onClick={load}
             disabled={loading}
