@@ -3,10 +3,13 @@
 Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (revenue risk engine), Phase 4 (recovery safety / policy engine), Phase 5
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
-Phase 7 (recovery execution pipeline), and Phase 8 (failure-recovery demo)
-complete. This document will be filled in further as later phases (batch
-execution, recovery metrics, dashboard) land, so that it always accurately
-reflects what is actually implemented rather than the target design.
+Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
+and Phase 9 (production deployment) complete — this architecture is
+deployed and live (Neon PostgreSQL, Render backend, Vercel frontend; see
+[README.md § Live deployment](../README.md#12-live-deployment-phase-9)).
+This document will be filled in further as later phases (batch execution,
+recovery metrics, dashboard) land, so that it always accurately reflects
+what is actually implemented rather than the target design.
 
 ## Current state
 

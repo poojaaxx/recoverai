@@ -1409,30 +1409,92 @@ same way a static host's rewrite rule needs it to.
   `amountRecovered > 0` (still unreachable with today's providers — see
   [Recovery Execution Pipeline](#recovery-execution-pipeline-phase-7)).
 
-### Deployment blockers / manual steps remaining
+### 12. Live deployment (Phase 9)
 
-Nothing in the codebase blocks deployment. What genuinely requires a human
-with account access (an AI agent cannot do this):
+The application described above is deployed and was verified live at the
+following real, internet-reachable URLs — not just prepared for
+deployment:
 
-1. Provision the managed PostgreSQL instance and obtain its connection
-   string.
-2. Create the Render/Railway (or equivalent) backend service and the
-   Vercel (or equivalent) frontend project, each pointed at this repo.
-3. Set the environment variables listed above in each platform's
-   dashboard (nothing here can or should be committed to source).
-4. Trigger the first deploy of both, then set `FRONTEND_URL` on the
-   backend to the frontend's real deployed URL (a one-time chicken-and-egg
-   step, since the frontend's URL isn't known until it's first deployed)
-   and redeploy the backend once with it set.
-5. If a real Anthropic key or real Razorpay Test Mode credentials are
-   wanted for the live demo (optional — the mock defaults are fully
-   functional), obtain and set those credentials.
-6. This project was built and verified in an environment without Docker
-   or a persistent PostgreSQL instance available (see
-   [Setup instructions](#setup-instructions)) — `backend/Dockerfile` was
-   therefore written carefully (standard multi-stage Maven/JRE pattern,
-   no unusual constructs) but **has not been built or run** in this
-   environment; a human with Docker access should do a `docker build`
-   smoke test before the actual deployment, the same way
-   `RazorpayPaymentGateway`/`AnthropicAIRecoveryProvider` were flagged as
-   "written but unverified against the real thing" in earlier phases.
+| Component | Provider | URL |
+|---|---|---|
+| Frontend | Vercel | https://recoverai-bay.vercel.app |
+| Backend API | Render (Docker deploy from `backend/Dockerfile`) | https://recoverai-xrky.onrender.com |
+| Health check | — | https://recoverai-xrky.onrender.com/api/health |
+| Demo page | — | https://recoverai-bay.vercel.app/demo/recovery |
+| Database | Neon (managed PostgreSQL 16) | private connection, not publicly listed |
+
+**Backend environment actually configured on Render:**
+`SPRING_PROFILES_ACTIVE=prod`, `DB_URL`/`DB_USERNAME`/`DB_PASSWORD`
+(pointed at the Neon instance above, `sslmode=require`), `FRONTEND_URL=
+https://recoverai-bay.vercel.app`, `AI_PROVIDER=mock`,
+`RAZORPAY_ENABLED=false`, `RAZORPAY_MODE=simulation`,
+`DEMO_SEED_ENABLED=true`. No credential is committed to source; all of the
+above were set directly in Render's dashboard.
+
+**Frontend environment actually configured on Vercel:**
+`VITE_API_BASE_URL=https://recoverai-xrky.onrender.com` (Production
+environment only). Confirmed by inspecting the built JS bundle: the axios
+`baseURL` compiled into it is the real Render URL, not `localhost`.
+
+**What was verified against the real, deployed system (not local, not
+mocked):**
+
+- Flyway applied all of `V1`-`V10` to the real Neon database and
+  `spring.jpa.hibernate.ddl-auto=validate` passed — confirmed twice: once
+  via a direct local connection to the Neon instance, and independently in
+  Render's own startup logs (`Successfully validated 10 migrations`,
+  `Schema "public" is up to date`).
+- `GET /api/health` → `200 {"status":"UP",...}` on the live Render URL.
+- `GET /api/transactions`, `GET /api/revenue-risk/metrics`,
+  `POST /api/revenue-risk/analyze-all`, `POST /api/recovery-agent/evaluate-all`
+  all returned `200` with real, non-empty data computed from the live
+  seeded dataset (500 transactions, 197 flagged at-risk after analysis).
+- `GET /api/demo/recovery` on the live URL returned all 5 named scenarios
+  with the exact expected outcomes: `demo-easy-recovery` → AI recommends
+  `RETRY_PAYMENT` → policy `ALLOW` → executed through the mock gateway
+  (`simulated=true`, `amountRecovered=0.00`, transaction status stays
+  `FAILED`, not falsely `RECOVERED`); `demo-high-value` → AI recommends
+  `RETRY_PAYMENT` but policy overrides to `ESCALATE` → **not** executed;
+  `demo-repeated-failure` → policy `STOP` → not executed;
+  `demo-successful-recovery` → policy `BLOCK` → not executed;
+  `demo-retry-escalation` → policy `ESCALATE` → not executed. Aggregate
+  `confirmedAmountRecovered: 0.00` and `gatewayCalls: 1` (only the one
+  `ALLOW` case) — matching the safety guarantees in
+  [Failure-Recovery Demo](#failure-recovery-demo-phase-8) exactly.
+- CORS verified live in both directions against the real deployed frontend
+  origin: a preflight from `https://recoverai-bay.vercel.app` →
+  `200` with `Access-Control-Allow-Origin` echoing that exact origin; a
+  preflight from an unrelated origin (`https://evil.example.com`, and
+  separately the placeholder origin used before the frontend existed) →
+  `403` on both, confirming CORS actually tightened to only the real
+  frontend rather than staying open to whatever was configured first.
+- `backend/Dockerfile` is now genuinely build-and-run verified, not just
+  written — Render built it directly from this repository and it produced
+  a working container serving real traffic, resolving the earlier
+  "written but unverified" caveat.
+
+**Known limitations of this live deployment specifically:**
+
+- Both the backend (Render) and database (Neon) are on free tiers. Render
+  spins the backend down after a period of inactivity; the first request
+  after that can take 30 seconds to several minutes to respond while it
+  cold-starts (observed directly during verification). This is a platform
+  characteristic, not an application bug.
+- During the initial deploy, the Render instance's own startup seed
+  briefly collided with a one-time manual verification seed run against
+  the same database from a separate process, causing one write to fail
+  and that container to crash; Render's automatic restart then completed
+  the seed cleanly on the next attempt with no lasting effect. This was a
+  one-time coincidence from parallel verification, not a recurring
+  failure mode — a normal deploy only ever seeds once, from one process.
+- `DEMO_SEED_ENABLED=true` re-seeds (wipes and regenerates the same
+  deterministic dataset) on every backend restart. This is intentional
+  (see [Seed data](#7-seed-data) above) but means any demo scenario that
+  was executed in a prior session resets to its pristine state after a
+  restart — expected, not a bug, but worth knowing before presenting live
+  (don't trigger a redeploy mid-demo unless a clean reset is wanted).
+- No custom domain is configured — both URLs above are the platforms'
+  default subdomains.
+- `AI_PROVIDER=mock` and `RAZORPAY_MODE=simulation` remain the live
+  defaults, per this task's explicit instruction not to enable real
+  external credentials without being separately asked.

@@ -3,9 +3,13 @@
 Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (revenue risk engine), Phase 4 (recovery safety / policy engine), Phase 5
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
-Phase 7 (recovery execution pipeline), and Phase 8 (failure-recovery demo)
-complete. Endpoints are documented here as they are implemented; see
-[README.md](../README.md#project-status) for overall phase progress.
+Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
+and Phase 9 (production deployment) complete — the API described below is
+live at https://recoverai-xrky.onrender.com. Endpoints are documented here
+as they are implemented; see [README.md](../README.md#project-status) for
+overall phase progress and
+[README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
+the deployment record.
 
 Phase 6 deliberately added **no new endpoint** - `PaymentGateway` (mock by
 default, real Razorpay Payment Links when explicitly enabled) was

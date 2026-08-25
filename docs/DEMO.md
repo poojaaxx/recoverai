@@ -4,12 +4,11 @@ Status: as of Phase 8, the full failure-recovery demo walkthrough (risk →
 AI → policy → execution → audit, across all 5 named demo transactions) is
 real, wired, and viewable in one place — both as a single JSON call and as
 a polished frontend page. A general-purpose transaction dashboard (any
-transaction, not just the 5 curated ones) is still Phase 9. As of the
-deployment phase, this same walkthrough is also runnable as a real,
-internet-reachable deployment — see
-[README.md § Buildathon Deployment](../README.md#buildathon-deployment) for
-the full PostgreSQL/backend/frontend deployment steps, environment
-variables, and smoke-test results; this document stays focused on running
+transaction, not just the 5 curated ones) is still a future phase. As of
+Phase 9, this same walkthrough is live on the internet — see
+[README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
+the real URLs, provider setup, environment variables, and what was
+verified against the live system; this document stays focused on running
 and understanding the demo itself, locally or deployed.
 
 ## Running the demo
@@ -31,11 +30,19 @@ an on-demand HTTP trigger remains unbuilt — see
 `DemoDataSeederTest`/any test that autowires `DemoDataSeeder` and calls
 `seed()` will also populate them against a local H2/Postgres instance.
 
-**Deployed** — once the backend and frontend are both deployed (see
-[README.md § Buildathon Deployment](../README.md#buildathon-deployment)),
-the exact same walkthrough works against the real URLs: open the deployed
-frontend's `/demo/recovery` route, or call
-`GET <backend-url>/api/demo/recovery` directly.
+**Deployed** — the application is live; the exact same walkthrough works
+against these real URLs (see
+[README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
+the full provider/environment/verification record):
+
+- Frontend demo page: https://recoverai-bay.vercel.app/demo/recovery
+- Backend directly: https://recoverai-xrky.onrender.com/api/demo/recovery
+- Health check: https://recoverai-xrky.onrender.com/api/health
+
+The backend is on Render's free tier, which spins down when idle — the
+first request after a period of inactivity can take up to a couple of
+minutes to respond while it cold-starts. This is a platform characteristic,
+not an application issue.
 
 **Frontend:**
 
