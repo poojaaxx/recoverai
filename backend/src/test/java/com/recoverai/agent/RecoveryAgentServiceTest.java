@@ -468,6 +468,45 @@ class RecoveryAgentServiceTest {
         assertThat(response.requiresHumanApproval()).isTrue();
     }
 
+    // ---------------------------------------------------------------- 17. mismatched transactionId (Phase 10)
+
+    @Test
+    void mismatchedTransactionId_isRejected_fallsBackSafely() {
+        Customer c = customer(5, 0);
+        Transaction txn = transaction(c, TransactionStatus.FAILED, new BigDecimal("999.00"),
+                FailureCategory.TEMPORARY_FAILURE, 1);
+
+        AIRecoveryProvider wrongTransactionId = context -> new RecoveryRecommendation(
+                UUID.randomUUID(), RecoveryAction.RETRY_PAYMENT, new BigDecimal("0.9"),
+                "recommendation for a different transaction entirely", InterventionType.RETRY,
+                BigDecimal.TEN, Urgency.LOW, "test", null);
+
+        RecoveryAgentEvaluationResponse response = agentWithStubProvider(wrongTransactionId).evaluate(txn.getId());
+
+        assertThat(response.aiRecommendation().action()).isEqualTo(RecoveryAction.ESCALATE);
+        assertThat(response.aiRecommendation().rationale()).contains("failed validation");
+    }
+
+    // ---------------------------------------------------------------- 18. CREATE_PAYMENT_LINK on an already-RECOVERED transaction (Phase 10)
+
+    @Test
+    void aiRecommendsPaymentLink_transactionAlreadyRecovered_isBlockedRegardless() {
+        Customer strong = customer(5, 0);
+        Transaction txn = transaction(strong, TransactionStatus.RECOVERED, new BigDecimal("1899.00"),
+                FailureCategory.NETWORK_ERROR, 2);
+
+        AIRecoveryProvider alwaysPaymentLink = context -> new RecoveryRecommendation(
+                context.transaction().transactionId(), RecoveryAction.CREATE_PAYMENT_LINK, new BigDecimal("0.7"),
+                "AI still recommends a payment link", InterventionType.RETRY, new BigDecimal("500"),
+                Urgency.LOW, "test", null);
+
+        RecoveryAgentEvaluationResponse response = agentWithStubProvider(alwaysPaymentLink).evaluate(txn.getId());
+
+        assertThat(response.aiRecommendation().action()).isEqualTo(RecoveryAction.CREATE_PAYMENT_LINK);
+        assertThat(response.policyDecision().decision()).isEqualTo(PolicyDecision.BLOCK);
+        assertThat(response.finalAction()).isNull();
+    }
+
     // ---------------------------------------------------------------- misc
 
     @Test
