@@ -280,7 +280,7 @@ public class RecoveryExecutionService {
                 attempt.getProviderPaymentId(), attempt.getConfirmedAt());
     }
 
-    /** Every existing row predates Phase 11's not-null column default only in H2 test fixtures built by hand; defends against a null field regardless. */
+    /** Every existing row predates Phase 12's not-null column default only in H2 test fixtures built by hand; defends against a null field regardless. */
     private static PaymentConfirmationStatus confirmationStatus(RecoveryAttempt attempt) {
         return attempt.getPaymentConfirmationStatus() == null
                 ? PaymentConfirmationStatus.NOT_CONFIRMED : attempt.getPaymentConfirmationStatus();

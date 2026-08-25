@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Business-logic coverage for {@link PaymentConfirmationService}: signature
  * gating, correlation, amount/currency verification, and the confirmed
- * -state transition - Phase 11 spec §16, items 1-9 and 11-19. Every
+ * -state transition - Phase 12 spec §16, items 1-9 and 11-19. Every
  * fixture here is a properly HMAC-signed payload built with {@link
  * RazorpayWebhookSignature#sign}, posted through the real verification
  * path - not a parallel unsigned bypass.

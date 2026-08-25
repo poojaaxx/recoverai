@@ -31,7 +31,7 @@ import java.util.UUID;
  * attempt, which already reported its own recommendation/policyDecision
  * to whichever request performed it.
  * <p>
- * {@code paymentConfirmationStatus} (Phase 11) is a strictly separate fact
+ * {@code paymentConfirmationStatus} (Phase 12) is a strictly separate fact
  * from {@code executionStatus}: {@code executionStatus=SUCCESS} only means
  * the provider call (e.g. creating a payment link) went through -
  * {@code paymentConfirmationStatus=CONFIRMED} is the only field that means

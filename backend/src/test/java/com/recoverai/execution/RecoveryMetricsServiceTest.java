@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link RecoveryMetricsService} - the aggregate figures a client would see
  * at {@code GET /api/recovery/metrics}. Verifies both the honest zero-state
  * and that {@code confirmedRecoveredRevenue} only ever counts genuinely
- * webhook-confirmed attempts, never execution success alone (Phase 11
+ * webhook-confirmed attempts, never execution success alone (Phase 12
  * spec §9).
  */
 @SpringBootTest

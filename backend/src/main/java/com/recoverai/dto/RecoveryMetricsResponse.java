@@ -3,7 +3,7 @@ package com.recoverai.dto;
 import java.math.BigDecimal;
 
 /**
- * Portfolio-level recovery metrics (Phase 11), computed entirely from
+ * Portfolio-level recovery metrics (Phase 12), computed entirely from
  * persisted rows via database aggregate queries - never hardcoded. See
  * {@code com.recoverai.execution.RecoveryMetricsService}.
  * <p>

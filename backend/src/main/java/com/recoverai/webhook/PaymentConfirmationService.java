@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * <b>Never trusts a webhook until its signature is verified</b> - {@link
  * #processRazorpayWebhook} checks the signature over the raw payload
- * before parsing or acting on a single field of it (Phase 11 spec §2).
+ * before parsing or acting on a single field of it (Phase 12 spec §2).
  * <p>
  * <b>Correlation.</b> A confirmation is matched to the {@link
  * RecoveryAttempt} whose {@code providerReference} (the Razorpay payment

@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 /**
- * Portfolio-level recovery metrics (Phase 11) - a pure read/aggregation
+ * Portfolio-level recovery metrics (Phase 12) - a pure read/aggregation
  * layer over {@link RecoveryAttemptRepository} and {@link
  * RevenueRiskService}, with no risk/AI/policy/payment decision logic of
  * its own. See {@link RecoveryMetricsResponse}'s javadoc for the

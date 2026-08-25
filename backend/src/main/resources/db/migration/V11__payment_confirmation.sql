@@ -1,4 +1,4 @@
--- Phase 11: distinguish "execution succeeded" (a provider call went through)
+-- Phase 12: distinguish "execution succeeded" (a provider call went through)
 -- from "payment confirmed" (the customer genuinely paid, proven by a
 -- verified provider webhook). See PaymentConfirmationStatus /
 -- com.recoverai.webhook.PaymentConfirmationService.

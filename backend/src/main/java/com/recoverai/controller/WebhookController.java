@@ -22,7 +22,7 @@ import java.util.Map;
  * The request body is read exactly as received (a raw string, never
  * pre-parsed) because Razorpay's signature is computed over those exact
  * bytes - signature verification happens first, inside the service, before
- * a single field of the payload is trusted (Phase 11 spec §2). This
+ * a single field of the payload is trusted (Phase 12 spec §2). This
  * controller never logs the signature or the configured webhook secret,
  * and never echoes the payload back in a response.
  */

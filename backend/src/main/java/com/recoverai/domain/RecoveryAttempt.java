@@ -95,7 +95,7 @@ public class RecoveryAttempt {
 
     /**
      * Whether a verified provider webhook has confirmed this attempt as an
-     * actual customer payment (migration V11, Phase 11) — strictly separate
+     * actual customer payment (migration V11, Phase 12) — strictly separate
      * from {@link #status}, which only reflects whether the provider call
      * itself succeeded. See {@link PaymentConfirmationStatus} and {@code
      * com.recoverai.webhook.PaymentConfirmationService}.
