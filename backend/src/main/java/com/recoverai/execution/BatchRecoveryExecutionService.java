@@ -115,102 +115,109 @@ public class BatchRecoveryExecutionService {
             }
             Transaction transaction = maybeTransaction.get();
 
-            RecoveryAgentEvaluationResponse preview;
+            // The whole per-transaction body is wrapped in one try/catch: a genuinely
+            // unexpected failure anywhere here (e.g. a concurrent delete/reseed racing
+            // this exact transaction between the lookup above and a later step - a real
+            // production incident this handling was added for) must never surface a raw
+            // exception message (SQL, stack trace, internal schema) in the API response,
+            // and must never abort the rest of the batch - each transaction is isolated.
             try {
-                preview = recoveryAgentService.evaluatePreview(id);
-            } catch (Exception e) {
-                log.warn("Batch preview evaluation failed for transaction {}: {}", id, e.toString());
-                results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
-                        BatchExecutionOutcome.FAILED_PROVIDER_CALL, null, null, null,
-                        transaction.getAmount(), "Evaluation failed before execution was attempted: " + e.getMessage()));
-                failedProviderCallCount++;
-                continue;
-            }
-            PolicyDecision previewDecision = preview.policyDecision().decision();
+                RecoveryAgentEvaluationResponse preview = recoveryAgentService.evaluatePreview(id);
+                PolicyDecision previewDecision = preview.policyDecision().decision();
 
-            if (previewDecision != PolicyDecision.ALLOW) {
-                BatchExecutionOutcome outcome = switch (previewDecision) {
+                if (previewDecision != PolicyDecision.ALLOW) {
+                    BatchExecutionOutcome outcome = switch (previewDecision) {
+                        case BLOCK -> BatchExecutionOutcome.BLOCKED;
+                        case ESCALATE -> BatchExecutionOutcome.ESCALATED;
+                        case STOP -> BatchExecutionOutcome.STOPPED;
+                        case ALLOW -> throw new IllegalStateException("unreachable");
+                    };
+                    RecoveryExecutionResponse response = recoveryExecutionService.execute(id);
+                    switch (outcome) {
+                        case BLOCKED -> blockedCount++;
+                        case ESCALATED -> escalatedCount++;
+                        case STOPPED -> stoppedCount++;
+                        default -> { }
+                    }
+                    results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(), outcome,
+                            previewDecision, response.action(), response.recoveryAttemptId(),
+                            transaction.getAmount(), response.policyDecision() == null ? null : response.policyDecision().reason()));
+                    continue;
+                }
+
+                // previewDecision == ALLOW: enforce the portfolio-wide aggregate ceiling
+                // BEFORE ever calling execute(), so it is never partially exceeded.
+                BigDecimal amount = transaction.getAmount();
+                if (aggregateExecuted.add(amount).compareTo(maxAggregate) > 0) {
+                    skippedPortfolioLimitCount++;
+                    String reason = "Batch aggregate recovery limit (%s) would be exceeded by including this transaction (%s); skipped without executing."
+                            .formatted(maxAggregate, amount);
+                    writeSkipAudit(transaction, reason);
+                    results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
+                            BatchExecutionOutcome.SKIPPED_PORTFOLIO_LIMIT, previewDecision, preview.finalAction(),
+                            null, amount, reason));
+                    continue;
+                }
+
+                RecoveryExecutionResponse response = recoveryExecutionService.execute(id);
+                if (response.duplicate()) {
+                    alreadyExecutedCount++;
+                    results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
+                            BatchExecutionOutcome.ALREADY_EXECUTED, previewDecision, response.action(),
+                            response.recoveryAttemptId(), amount, response.executionNote()));
+                    continue;
+                }
+                if (response.failureCode() != null) {
+                    // A gateway call was attempted and the provider reported failure -
+                    // response.executed() is false in this case (see RecoveryExecutionResponse
+                    // javadoc: executed() reflects PaymentExecutionResult.success()), so this
+                    // must be checked before the executed()/executionStatus() branch below.
+                    failedProviderCallCount++;
+                    results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
+                            BatchExecutionOutcome.FAILED_PROVIDER_CALL, previewDecision, response.action(),
+                            response.recoveryAttemptId(), amount, response.failureReason()));
+                    continue;
+                }
+                if (response.executed() || response.executionStatus() != null) {
+                    // executed() covers a real successful gateway call; executionStatus()
+                    // non-null with executed()==false covers a recorded non-payment action
+                    // (e.g. a reminder) - both are genuine batch executions.
+                    executedCount++;
+                    aggregateExecuted = aggregateExecuted.add(amount);
+                    results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
+                            BatchExecutionOutcome.EXECUTED, previewDecision, response.action(),
+                            response.recoveryAttemptId(), amount, response.executionNote()));
+                    continue;
+                }
+
+                // Fresh execute() re-evaluated policy and it was no longer ALLOW (e.g. a
+                // concurrent action changed state between preview and execute) - report
+                // whatever the fresh, authoritative decision actually was.
+                PolicyDecision freshDecision = response.policyDecision() == null ? previewDecision : response.policyDecision().decision();
+                BatchExecutionOutcome outcome = switch (freshDecision) {
                     case BLOCK -> BatchExecutionOutcome.BLOCKED;
                     case ESCALATE -> BatchExecutionOutcome.ESCALATED;
                     case STOP -> BatchExecutionOutcome.STOPPED;
-                    case ALLOW -> throw new IllegalStateException("unreachable");
+                    case ALLOW -> BatchExecutionOutcome.FAILED_PROVIDER_CALL;
                 };
-                RecoveryExecutionResponse response = recoveryExecutionService.execute(id);
                 switch (outcome) {
                     case BLOCKED -> blockedCount++;
                     case ESCALATED -> escalatedCount++;
                     case STOPPED -> stoppedCount++;
-                    default -> { }
+                    default -> failedProviderCallCount++;
                 }
                 results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(), outcome,
-                        previewDecision, response.action(), response.recoveryAttemptId(),
-                        transaction.getAmount(), response.policyDecision() == null ? null : response.policyDecision().reason()));
-                continue;
-            }
-
-            // previewDecision == ALLOW: enforce the portfolio-wide aggregate ceiling
-            // BEFORE ever calling execute(), so it is never partially exceeded.
-            BigDecimal amount = transaction.getAmount();
-            if (aggregateExecuted.add(amount).compareTo(maxAggregate) > 0) {
-                skippedPortfolioLimitCount++;
-                String reason = "Batch aggregate recovery limit (%s) would be exceeded by including this transaction (%s); skipped without executing."
-                        .formatted(maxAggregate, amount);
-                writeSkipAudit(transaction, reason);
+                        freshDecision, response.action(), response.recoveryAttemptId(), amount, response.executionNote()));
+            } catch (Exception e) {
+                // Never surface e.getMessage() - see this method's javadoc for the real
+                // incident (a raw SQL/foreign-key-violation message reaching the API
+                // response) that made this the required behavior, not a hypothetical.
+                log.warn("Batch processing failed unexpectedly for transaction {}: {}", id, e.toString());
                 results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
-                        BatchExecutionOutcome.SKIPPED_PORTFOLIO_LIMIT, previewDecision, preview.finalAction(),
-                        null, amount, reason));
-                continue;
-            }
-
-            RecoveryExecutionResponse response = recoveryExecutionService.execute(id);
-            if (response.duplicate()) {
-                alreadyExecutedCount++;
-                results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
-                        BatchExecutionOutcome.ALREADY_EXECUTED, previewDecision, response.action(),
-                        response.recoveryAttemptId(), amount, response.executionNote()));
-                continue;
-            }
-            if (response.failureCode() != null) {
-                // A gateway call was attempted and the provider reported failure -
-                // response.executed() is false in this case (see RecoveryExecutionResponse
-                // javadoc: executed() reflects PaymentExecutionResult.success()), so this
-                // must be checked before the executed()/executionStatus() branch below.
+                        BatchExecutionOutcome.FAILED_PROVIDER_CALL, null, null, null,
+                        transaction.getAmount(), "This transaction could not be processed; nothing executed for it. The rest of the batch continued."));
                 failedProviderCallCount++;
-                results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
-                        BatchExecutionOutcome.FAILED_PROVIDER_CALL, previewDecision, response.action(),
-                        response.recoveryAttemptId(), amount, response.failureReason()));
-                continue;
             }
-            if (response.executed() || response.executionStatus() != null) {
-                // executed() covers a real successful gateway call; executionStatus()
-                // non-null with executed()==false covers a recorded non-payment action
-                // (e.g. a reminder) - both are genuine batch executions.
-                executedCount++;
-                aggregateExecuted = aggregateExecuted.add(amount);
-                results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(),
-                        BatchExecutionOutcome.EXECUTED, previewDecision, response.action(),
-                        response.recoveryAttemptId(), amount, response.executionNote()));
-                continue;
-            }
-
-            // Fresh execute() re-evaluated policy and it was no longer ALLOW (e.g. a
-            // concurrent action changed state between preview and execute) - report
-            // whatever the fresh, authoritative decision actually was.
-            PolicyDecision freshDecision = response.policyDecision() == null ? previewDecision : response.policyDecision().decision();
-            BatchExecutionOutcome outcome = switch (freshDecision) {
-                case BLOCK -> BatchExecutionOutcome.BLOCKED;
-                case ESCALATE -> BatchExecutionOutcome.ESCALATED;
-                case STOP -> BatchExecutionOutcome.STOPPED;
-                case ALLOW -> BatchExecutionOutcome.FAILED_PROVIDER_CALL;
-            };
-            switch (outcome) {
-                case BLOCKED -> blockedCount++;
-                case ESCALATED -> escalatedCount++;
-                case STOPPED -> stoppedCount++;
-                default -> failedProviderCallCount++;
-            }
-            results.add(new BatchExecutionItemResult(id, transaction.getExternalTransactionId(), outcome,
-                    freshDecision, response.action(), response.recoveryAttemptId(), amount, response.executionNote()));
         }
 
         log.info("Batch recovery execution by {}: requested={} distinct={} executed={} blocked={} escalated={} stopped={} skippedPortfolioLimit={} notFound={} aggregateExecuted={}",
