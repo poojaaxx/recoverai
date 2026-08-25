@@ -188,6 +188,26 @@ class AuthenticationIntegrationTest {
     }
 
     @Test
+    void confirmTestPaymentEndpoint_requiresAuthentication() throws Exception {
+        Transaction transaction = seedTransaction();
+
+        mockMvc.perform(post("/api/demo/recovery/confirm-test-payment/{id}", transaction.getId()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void confirmTestPaymentEndpoint_operatorRole_isForbidden() throws Exception {
+        // The role gate runs before the service's own demo-mode/eligibility checks, so this is
+        // rejected as 403 regardless of whether demo mode is enabled in this test profile.
+        Transaction transaction = seedTransaction();
+        String token = login(OPERATOR_USERNAME, OPERATOR_PASSWORD);
+
+        mockMvc.perform(post("/api/demo/recovery/confirm-test-payment/{id}", transaction.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void noSecurityBypassThroughUnmappedPath_stillRequiresAuthentication() throws Exception {
         // /api/payments/execute deliberately does not exist (see RecoveryExecutionControllerTest),
         // but the request must be rejected for lack of authentication before routing even matters.

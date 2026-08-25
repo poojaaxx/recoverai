@@ -40,9 +40,13 @@ import java.util.List;
  * <p>
  * Everything else under {@code /api/**} requires a valid bearer token.
  * {@code POST /api/recovery/{id}/execute} additionally requires the
- * {@code MERCHANT_ADMIN} role - the one endpoint that can cause a real
- * (or simulated) payment-gateway call - while every read/analyze/recommend
- * endpoint is available to both {@code MERCHANT_ADMIN} and {@code OPERATOR}.
+ * {@code MERCHANT_ADMIN} role - the endpoint that can cause a real (or
+ * simulated) payment-gateway call - as does {@code POST
+ * /api/demo/recovery/confirm-test-payment/{id}} (the judge-safe signed-
+ * webhook demo path, see {@code DemoConfirmationService}), since both are
+ * write actions with a real effect on transaction/attempt state. Every
+ * read/analyze/recommend endpoint is available to both {@code
+ * MERCHANT_ADMIN} and {@code OPERATOR}.
  */
 @Configuration
 @EnableWebSecurity
@@ -79,6 +83,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/webhooks/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/execute").hasRole("MERCHANT_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/demo/recovery/confirm-test-payment/*").hasRole("MERCHANT_ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
         return http.build();
