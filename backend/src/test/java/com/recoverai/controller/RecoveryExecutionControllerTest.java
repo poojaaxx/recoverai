@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -75,6 +76,16 @@ class RecoveryExecutionControllerTest {
     void executeEndpoint_unknownTransaction_returns404() throws Exception {
         mockMvc.perform(post("/api/recovery/{id}/execute", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void metricsEndpoint_returnsPortfolioAggregates() throws Exception {
+        mockMvc.perform(get("/api/recovery/metrics"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalRevenueAtRisk").exists())
+                .andExpect(jsonPath("$.confirmedRecoveredRevenue").exists())
+                .andExpect(jsonPath("$.recoveryAttempts").exists())
+                .andExpect(jsonPath("$.confirmedRecoveryCount").exists());
     }
 
     @Test

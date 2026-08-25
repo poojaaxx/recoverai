@@ -27,8 +27,18 @@ public interface RecoveryAttemptRepository extends JpaRepository<RecoveryAttempt
 
     long countByPaymentConfirmationStatus(PaymentConfirmationStatus status);
 
+    long countByStatus(RecoveryAttemptStatus status);
+
     @Query("SELECT COALESCE(SUM(ra.confirmedAmount), 0) FROM RecoveryAttempt ra WHERE ra.paymentConfirmationStatus = com.recoverai.domain.PaymentConfirmationStatus.CONFIRMED")
     BigDecimal sumConfirmedAmount();
+
+    /** Amount already sent to a provider (execution SUCCESS) but not yet proven paid by a webhook - the "money in flight" figure for {@code RecoveryMetricsResponse}. */
+    @Query("""
+            SELECT COALESCE(SUM(ra.amount), 0) FROM RecoveryAttempt ra
+            WHERE ra.status = com.recoverai.domain.RecoveryAttemptStatus.SUCCESS
+              AND ra.paymentConfirmationStatus = com.recoverai.domain.PaymentConfirmationStatus.NOT_CONFIRMED
+            """)
+    BigDecimal sumPendingConfirmationAmount();
 
     /**
      * Batch equivalent of {@link #countByTransactionIdAndStatus} — one

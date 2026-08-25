@@ -1,12 +1,15 @@
 package com.recoverai.controller;
 
 import com.recoverai.dto.RecoveryExecutionResponse;
+import com.recoverai.dto.RecoveryMetricsResponse;
 import com.recoverai.execution.RecoveryExecutionService;
+import com.recoverai.execution.RecoveryMetricsService;
 import com.recoverai.risk.TransactionNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,10 +35,16 @@ import java.util.UUID;
 public class RecoveryExecutionController {
 
     private final RecoveryExecutionService recoveryExecutionService;
+    private final RecoveryMetricsService recoveryMetricsService;
 
     @PostMapping("/{transactionId}/execute")
     public RecoveryExecutionResponse execute(@PathVariable UUID transactionId) {
         return recoveryExecutionService.execute(transactionId);
+    }
+
+    @GetMapping("/metrics")
+    public RecoveryMetricsResponse metrics() {
+        return recoveryMetricsService.getMetrics();
     }
 
     @ExceptionHandler(TransactionNotFoundException.class)
