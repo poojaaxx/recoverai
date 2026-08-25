@@ -98,4 +98,72 @@ class AuditControllerTest {
         mockMvc.perform(get("/api/audit/{transactionId}", UUID.randomUUID()))
                 .andExpect(status().isNotFound());
     }
+
+    // ---------------------------------------------------------------- P1.4 global audit feed
+
+    private Transaction seedTransactionWithEvents(String eventTypeA, String eventTypeB) {
+        Merchant merchant = merchantRepository.save(Merchant.builder()
+                .name("Global Audit Test Merchant")
+                .email("global-audit-" + UUID.randomUUID() + "@example.com").build());
+        Customer customer = customerRepository.save(Customer.builder()
+                .merchant(merchant).name("Global Audit Test Customer")
+                .email("global-audit-cust-" + UUID.randomUUID() + "@example.com").build());
+        Transaction transaction = transactionRepository.save(Transaction.builder()
+                .externalTransactionId("txn_global_audit_" + UUID.randomUUID())
+                .merchant(merchant).customer(customer).amount(new BigDecimal("500.00")).currency("INR")
+                .status(TransactionStatus.FAILED).paymentMethod(PaymentMethod.CARD).attemptCount(1).build());
+        auditLogRepository.save(AuditLog.builder()
+                .transaction(transaction).eventType(eventTypeA).actor("POLICY_ENGINE")
+                .decision("ALLOW").reason("first").timestamp(Instant.now().minusSeconds(120)).build());
+        auditLogRepository.save(AuditLog.builder()
+                .transaction(transaction).eventType(eventTypeB).actor("AI_AGENT")
+                .reason("second").timestamp(Instant.now()).build());
+        return transaction;
+    }
+
+    @Test
+    void globalAudit_returnsNewestFirstAcrossTransactions() throws Exception {
+        Transaction transaction = seedTransactionWithEvents("RECOVERY_POLICY_EVALUATED", "RECOVERY_AI_RECOMMENDATION");
+
+        mockMvc.perform(get("/api/audit").param("transactionId", transaction.getId().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].eventType").value("RECOVERY_AI_RECOMMENDATION"))
+                .andExpect(jsonPath("$.content[0].transactionId").value(transaction.getId().toString()))
+                .andExpect(jsonPath("$.content[0].externalTransactionId").value(transaction.getExternalTransactionId()))
+                .andExpect(jsonPath("$.content[1].eventType").value("RECOVERY_POLICY_EVALUATED"));
+    }
+
+    @Test
+    void globalAudit_filtersByEventType() throws Exception {
+        Transaction transaction = seedTransactionWithEvents("RECOVERY_POLICY_EVALUATED", "RECOVERY_AI_RECOMMENDATION");
+
+        mockMvc.perform(get("/api/audit")
+                        .param("transactionId", transaction.getId().toString())
+                        .param("eventType", "RECOVERY_POLICY_EVALUATED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].eventType").value("RECOVERY_POLICY_EVALUATED"));
+    }
+
+    @Test
+    void globalAudit_filtersByActor() throws Exception {
+        Transaction transaction = seedTransactionWithEvents("RECOVERY_POLICY_EVALUATED", "RECOVERY_AI_RECOMMENDATION");
+
+        mockMvc.perform(get("/api/audit")
+                        .param("transactionId", transaction.getId().toString())
+                        .param("actor", "AI_AGENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].actor").value("AI_AGENT"));
+    }
+
+    @Test
+    void globalAudit_isPaginated() throws Exception {
+        seedTransactionWithEvents("RECOVERY_POLICY_EVALUATED", "RECOVERY_AI_RECOMMENDATION");
+
+        mockMvc.perform(get("/api/audit").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.size").value(1));
+    }
 }
