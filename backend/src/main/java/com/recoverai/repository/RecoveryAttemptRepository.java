@@ -61,4 +61,27 @@ public interface RecoveryAttemptRepository extends JpaRepository<RecoveryAttempt
         UUID getTransactionId();
         Long getFailedCount();
     }
+
+    /**
+     * Provider observability ({@code ObservabilityService}). A {@link
+     * RecoveryAttempt} row with a non-null {@code provider} exists exactly
+     * when {@code RecoveryExecutionService} actually called {@code
+     * PaymentGateway.execute()} - so grouping these by provider and status
+     * is a genuine count of real provider calls and their outcomes,
+     * without adding any new instrumentation inside the gateway
+     * abstraction itself (which stays a pure execution boundary - see
+     * docs/ARCHITECTURE.md "Razorpay Integration / Payment Adapter").
+     */
+    @Query("""
+            SELECT ra.provider AS provider, ra.status AS status, COUNT(ra) AS total
+            FROM RecoveryAttempt ra WHERE ra.provider IS NOT NULL
+            GROUP BY ra.provider, ra.status
+            """)
+    List<ProviderStatusCount> countGroupedByProviderAndStatus();
+
+    interface ProviderStatusCount {
+        String getProvider();
+        RecoveryAttemptStatus getStatus();
+        Long getTotal();
+    }
 }

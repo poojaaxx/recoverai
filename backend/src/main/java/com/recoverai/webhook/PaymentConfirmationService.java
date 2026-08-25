@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Verifies and processes inbound Razorpay payment-confirmation webhooks -
@@ -77,6 +78,18 @@ public class PaymentConfirmationService {
     private final TransactionTemplate transactionTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /**
+     * The only two rejection reasons that happen before any {@link
+     * WebhookEvent} row can be persisted (no verified signature means
+     * nothing about the payload can be trusted enough to record yet) - an
+     * in-memory, per-instance counter is the same documented simplification
+     * {@code RateLimitFilter} already uses for the same reason (see
+     * docs/ARCHITECTURE.md "Production Observability"). Every other webhook
+     * outcome is a real, persisted {@link WebhookEvent} row instead.
+     */
+    private final AtomicLong invalidSignatureCount = new AtomicLong();
+    private final AtomicLong malformedPayloadCount = new AtomicLong();
+
     public PaymentConfirmationService(RazorpayProperties razorpayProperties,
                                        WebhookEventRepository webhookEventRepository,
                                        RecoveryAttemptRepository recoveryAttemptRepository,
@@ -93,6 +106,7 @@ public class PaymentConfirmationService {
 
     public WebhookProcessingResult processRazorpayWebhook(String rawBody, String signatureHeader, String eventIdHeader) {
         if (!RazorpayWebhookSignature.isValid(rawBody, signatureHeader, razorpayProperties.getWebhookSecret())) {
+            invalidSignatureCount.incrementAndGet();
             log.warn("Rejected a Razorpay webhook delivery with a missing or invalid signature.");
             return WebhookProcessingResult.invalidSignature();
         }
@@ -101,20 +115,26 @@ public class PaymentConfirmationService {
         try {
             parsed = parse(rawBody);
         } catch (Exception e) {
+            malformedPayloadCount.incrementAndGet();
             log.warn("Rejected a Razorpay webhook delivery whose (signature-verified) payload was not valid JSON.");
             return new WebhookProcessingResult(WebhookOutcome.REJECTED, "Webhook payload was not valid JSON.", null);
         }
 
         String providerEventId = resolveProviderEventId(eventIdHeader, parsed, rawBody);
-        AtomicBoolean reservedAttempted = new AtomicBoolean(false);
+        org.slf4j.MDC.put("providerEventId", providerEventId);
         try {
-            return transactionTemplate.execute(status -> doProcess(parsed, providerEventId, reservedAttempted));
-        } catch (DataIntegrityViolationException lostRace) {
-            if (!reservedAttempted.get()) {
-                throw lostRace;
+            AtomicBoolean reservedAttempted = new AtomicBoolean(false);
+            try {
+                return transactionTemplate.execute(status -> doProcess(parsed, providerEventId, reservedAttempted));
+            } catch (DataIntegrityViolationException lostRace) {
+                if (!reservedAttempted.get()) {
+                    throw lostRace;
+                }
+                log.info("Razorpay webhook event {} lost a concurrent idempotency race; resolving from the already-processed row.", providerEventId);
+                return transactionTemplate.execute(status -> resolveAlreadyProcessed(providerEventId));
             }
-            log.info("Razorpay webhook event {} lost a concurrent idempotency race; resolving from the already-processed row.", providerEventId);
-            return transactionTemplate.execute(status -> resolveAlreadyProcessed(providerEventId));
+        } finally {
+            org.slf4j.MDC.remove("providerEventId");
         }
     }
 
@@ -315,5 +335,13 @@ public class PaymentConfirmationService {
     }
 
     private record ParsedWebhook(String eventType, String paymentLinkId, String paymentId, Long amountPaise, String currency) {
+    }
+
+    public long invalidSignatureCount() {
+        return invalidSignatureCount.get();
+    }
+
+    public long malformedPayloadCount() {
+        return malformedPayloadCount.get();
     }
 }

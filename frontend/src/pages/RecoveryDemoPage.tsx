@@ -6,6 +6,7 @@ import { Badge, outcomeTone, policyTone, riskTone } from '../components/Badge'
 import { ScenarioOperations } from '../components/ScenarioOperations'
 import { outcomeLabel, type PolicyDecision, type RecoveryDemoScenario, type RecoveryDemoSummary } from '../types/demo'
 import type { BatchAgentEvaluationResult, BatchRiskAnalysisResult, RecoveryMetrics } from '../types/recovery'
+import type { ObservabilityMetrics } from '../types/observability'
 
 const currency = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -277,9 +278,42 @@ function PortfolioMetricsPanel({ metrics }: { metrics: RecoveryMetrics }) {
   )
 }
 
+/** Policy/webhook/provider counts from GET /api/observability/metrics — production observability, not a monitoring platform: just the handful of numbers that answer "is this actually working." */
+function ObservabilityPanel({ observability }: { observability: ObservabilityMetrics }) {
+  const { policyDecisions, webhooks } = observability
+  const stat = (label: string, value: number) => (
+    <div>
+      <div className="text-xs text-[var(--color-text-secondary)]">{label}</div>
+      <div className="mt-0.5 text-base font-semibold text-[var(--color-text-primary)]">{value}</div>
+    </div>
+  )
+  return (
+    <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-1)] p-5">
+      <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">System observability</h2>
+      <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+        Real counts of what the system has actually decided and processed — not a monitoring platform, just a few
+        production-readiness signals.
+      </p>
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {stat('Policy: ALLOW', policyDecisions.allow)}
+        {stat('Policy: BLOCK', policyDecisions.block)}
+        {stat('Policy: ESCALATE', policyDecisions.escalate)}
+        {stat('Policy: STOP', policyDecisions.stop)}
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {stat('Webhooks processed', webhooks.processed)}
+        {stat('Webhooks rejected', webhooks.rejected)}
+        {stat('Invalid signature', webhooks.invalidSignature)}
+        {stat('Webhooks received', webhooks.receivedTotal)}
+      </div>
+    </div>
+  )
+}
+
 export function RecoveryDemoPage() {
   const [summary, setSummary] = useState<RecoveryDemoSummary | null>(null)
   const [metrics, setMetrics] = useState<RecoveryMetrics | null>(null)
+  const [observability, setObservability] = useState<ObservabilityMetrics | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [loading, setLoading] = useState(false)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
@@ -318,10 +352,14 @@ export function RecoveryDemoPage() {
         setLoading(false)
         setHasLoadedOnce(true)
       })
-    // Portfolio metrics load independently — a failure here shouldn't block the scenario dashboard above.
+    // Portfolio metrics and observability load independently — a failure here shouldn't block the scenario dashboard above.
     api
       .recoveryMetrics()
       .then((res) => setMetrics(res.data))
+      .catch(() => undefined)
+    api
+      .observabilityMetrics()
+      .then((res) => setObservability(res.data))
       .catch(() => undefined)
   }
 
@@ -409,6 +447,7 @@ export function RecoveryDemoPage() {
           </div>
 
           {metrics && <PortfolioMetricsPanel metrics={metrics} />}
+          {observability && <ObservabilityPanel observability={observability} />}
 
           <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-1)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">

@@ -15,6 +15,7 @@ import type {
   TransactionDetail,
 } from '../types/recovery'
 import type { TransactionFullDetail, TransactionListFilters, TransactionListPage } from '../types/transaction'
+import type { ObservabilityMetrics } from '../types/observability'
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
 
@@ -154,6 +155,7 @@ export const api = {
 
   executeRecovery: (transactionId: string) => apiClient.post<ExecutionResult>(`/api/recovery/${transactionId}/execute`),
   recoveryMetrics: () => apiClient.get<RecoveryMetrics>('/api/recovery/metrics'),
+  observabilityMetrics: () => apiClient.get<ObservabilityMetrics>('/api/observability/metrics'),
 
   auditTimeline: (transactionId: string) => apiClient.get<AuditEntry[]>(`/api/audit/${transactionId}`),
 }
