@@ -119,21 +119,26 @@ public class RecoveryExecutionService {
      * supply or override them.
      */
     public RecoveryExecutionResponse execute(UUID transactionId) {
-        AtomicReference<String> attemptedIdempotencyKey = new AtomicReference<>();
+        org.slf4j.MDC.put("transactionId", transactionId.toString());
         try {
-            RecoveryExecutionResponse response = transactionTemplate.execute(status ->
-                    doExecute(transactionId, attemptedIdempotencyKey));
-            return response;
-        } catch (DataIntegrityViolationException lostRace) {
-            String key = attemptedIdempotencyKey.get();
-            if (key == null) {
-                // Nothing reached the point of attempting a reservation - not our idempotency
-                // constraint; a genuinely unexpected failure, so fail closed rather than guess.
-                throw lostRace;
+            AtomicReference<String> attemptedIdempotencyKey = new AtomicReference<>();
+            try {
+                RecoveryExecutionResponse response = transactionTemplate.execute(status ->
+                        doExecute(transactionId, attemptedIdempotencyKey));
+                return response;
+            } catch (DataIntegrityViolationException lostRace) {
+                String key = attemptedIdempotencyKey.get();
+                if (key == null) {
+                    // Nothing reached the point of attempting a reservation - not our idempotency
+                    // constraint; a genuinely unexpected failure, so fail closed rather than guess.
+                    throw lostRace;
+                }
+                log.info("Recovery execution for transaction {} lost a concurrent race on idempotency key {}; resolving from the winning attempt.",
+                        transactionId, key);
+                return transactionTemplate.execute(status -> resolveDuplicate(transactionId, key));
             }
-            log.info("Recovery execution for transaction {} lost a concurrent race on idempotency key {}; resolving from the winning attempt.",
-                    transactionId, key);
-            return transactionTemplate.execute(status -> resolveDuplicate(transactionId, key));
+        } finally {
+            org.slf4j.MDC.remove("transactionId");
         }
     }
 
@@ -207,6 +212,9 @@ public class RecoveryExecutionService {
 
         writeLifecycleAudit(transaction, result.success() ? "RECOVERY_EXECUTION_COMPLETED" : "RECOVERY_EXECUTION_FAILED",
                 decision, action, reserved.getId(), result, null);
+
+        log.info("Recovery execution for transaction {}: attempt={} action={} provider={} success={} simulated={} failureCode={}",
+                transactionId, reserved.getId(), action, result.provider(), result.success(), result.simulated(), result.failureCode());
 
         return executedResponse(transaction, agentResponse, reserved, result, false, null);
     }

@@ -1,0 +1,27 @@
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!--
+      Production readiness phase: same console output Spring Boot's default
+      pattern produces, with the MDC correlation fields (requestId always;
+      transactionId/providerEventId when the current operation set them -
+      see RequestCorrelationFilter, RecoveryExecutionService,
+      PaymentConfirmationService) appended so a single request's log lines
+      can be grepped together. Never includes request/response bodies,
+      headers, or any secret - only what individual log statements pass in.
+      Logger levels themselves stay driven by application.yml's
+      logging.level.* (unchanged) - this file only changes formatting.
+    -->
+    <property name="CONSOLE_LOG_PATTERN"
+              value="%clr(%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX}){faint} %clr(%5p) %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m %clr([req=%X{requestId:--} txn=%X{transactionId:--} evt=%X{providerEventId:--}]){faint}%n%wEx"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
