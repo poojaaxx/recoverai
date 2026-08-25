@@ -88,6 +88,13 @@ export function toApiError(error: unknown): ApiError {
     }
 
     switch (status) {
+      case 403:
+        return {
+          status,
+          message: "You don't have permission to perform this action. This requires MERCHANT_ADMIN access.",
+          retryAfterSeconds,
+          isLikelyColdStart: false,
+        }
       case 404:
         return { status, message: 'Not found.', retryAfterSeconds, isLikelyColdStart: false }
       case 429:
