@@ -3,6 +3,8 @@ import type { RecoveryAction, RecoveryDemoScenario, RecoveryDemoSummary } from '
 import type {
   AgentEvaluation,
   AuditEntry,
+  BatchAgentEvaluationResult,
+  BatchRiskAnalysisResult,
   ExecutionResult,
   HealthStatus,
   PolicyDecisionResult,
@@ -100,6 +102,8 @@ export const api = {
   analyzeRisk: (transactionId: string) => apiClient.post<RiskAnalysis>(`/api/revenue-risk/analyze/${transactionId}`),
   getRisk: (transactionId: string) => apiClient.get<RiskAnalysis>(`/api/revenue-risk/${transactionId}`),
   riskMetrics: () => apiClient.get<RiskMetrics>('/api/revenue-risk/metrics'),
+  analyzeAllRisk: () => apiClient.post<BatchRiskAnalysisResult>('/api/revenue-risk/analyze-all'),
+  evaluateAllWithAi: () => apiClient.post<BatchAgentEvaluationResult>('/api/recovery-agent/evaluate-all'),
 
   getAiRecommendation: (transactionId: string) =>
     apiClient.post<AgentEvaluation>(`/api/recovery-agent/evaluate/${transactionId}`),

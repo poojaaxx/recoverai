@@ -118,3 +118,19 @@ export interface RiskMetrics {
 }
 
 export type AuditEntry = AuditTimelineEntry
+
+/** Response of `POST /api/revenue-risk/analyze-all`. */
+export interface BatchRiskAnalysisResult {
+  transactionsAnalyzed: number
+  metrics: RiskMetrics
+}
+
+/** Response of `POST /api/recovery-agent/evaluate-all`. Recommendation/decision counts only — no execution happens in this batch call. */
+export interface BatchAgentEvaluationResult {
+  transactionsEvaluated: number
+  recommendationCountByAction: Record<string, number>
+  countByPolicyDecision: Record<string, number>
+  averageConfidence: number
+  providerFailures: number
+  malformedOutputs: number
+}
