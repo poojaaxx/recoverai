@@ -8,7 +8,7 @@ Phase 9 (production deployment), Phase 10 (audit, compliance & production
 hardening), and Phase 11 (interactive recovery console) complete — this
 architecture is deployed and live (Neon PostgreSQL, Render backend,
 Vercel frontend; see
-[README.md § Live deployment](../README.md#12-live-deployment-phase-9)).
+[README.md § Live deployment](../README.md)).
 This document will be filled in further as later phases (batch execution,
 recovery metrics, dashboard) land, so that it always accurately reflects
 what is actually implemented rather than the target design.
@@ -182,7 +182,7 @@ schema and mappings are correct.
 
 `backend/src/main/java/com/recoverai/seed/DemoDataSeeder.java` is a small,
 explicitly-scoped `@Service` — not a business service layer. See
-[README.md § Dataset](../README.md#dataset) for what it generates and why
+[README.md § Dataset](../README.md) for what it generates and why
 it is not the Phase 3/4 engines. `seed()` now wipes previously-seeded data
 before regenerating (needed once a second Phase 3 test class also called
 it against the same shared H2 database — see git history on
@@ -192,7 +192,7 @@ groundwork for a future `POST /api/demo/reset`.
 ## Revenue Risk Engine (Phase 3)
 
 `backend/src/main/java/com/recoverai/risk/RevenueRiskService.java` is the
-whole engine — see [README.md § Revenue Risk Engine](../README.md#revenue-risk-engine-phase-3)
+whole engine — see [README.md § Revenue Risk Engine](../README.md)
 for the formula, the risk-score-vs-recovery-probability distinction, and
 worked numbers from the seed dataset. Architecturally relevant points not
 covered there:
@@ -215,7 +215,7 @@ covered there:
   "first detected."
 - **Stale-row correction:** because the Phase 2 seed data pre-populates a
   risk row for `RECOVERED` transactions (a seed-heuristic label, not this
-  engine's output — see [README.md § Dataset](../README.md#dataset)),
+  engine's output — see [README.md § Dataset](../README.md)),
   `analyzeAllAtRisk()` also re-runs the (zeroing) computation over any
   `RESOLVED`-status transaction that already has a risk row, so aggregate
   metrics never overcount already-collected revenue as at-risk.
@@ -230,7 +230,7 @@ covered there:
 `backend/src/main/java/com/recoverai/policy/RecoveryPolicyService.java` is
 the authorization boundary between a recovery recommendation and an
 actually-executed recovery action — see
-[README.md § Recovery Safety / Policy Engine](../README.md#recovery-safety--policy-engine-phase-4)
+[README.md § Recovery Safety / Policy Engine](../README.md)
 for the full check pipeline, configured thresholds, and demo-scenario
 outcomes. Architecturally relevant points not covered there:
 
@@ -291,7 +291,7 @@ outcomes. Architecturally relevant points not covered there:
 `backend/src/main/java/com/recoverai/agent/RecoveryAgentService.java`
 orchestrates context building, the AI provider call, output validation,
 and handing the resulting action to Phase 4's `RecoveryPolicyService` —
-see [README.md § AI Recovery Agent](../README.md#ai-recovery-agent-phase-5)
+see [README.md § AI Recovery Agent](../README.md)
 for the pipeline diagram, provider abstraction, recommendation schema, and
 demo-scenario outcomes. Architecturally relevant points not covered there:
 
@@ -342,7 +342,7 @@ demo-scenario outcomes. Architecturally relevant points not covered there:
 
 `backend/src/main/java/com/recoverai/payment/` provides the execution
 boundary Phase 7 will call - see
-[README.md § Razorpay Integration / Payment Adapter](../README.md#razorpay-integration--payment-adapter-phase-6)
+[README.md § Razorpay Integration / Payment Adapter](../README.md)
 for the pipeline diagram, the RETRY_PAYMENT/CREATE_PAYMENT_LINK-to-Payment-Links
 mapping, and the `amountRecovered` honesty guarantee. Architecturally
 relevant points not covered there:
@@ -389,7 +389,7 @@ relevant points not covered there:
 `backend/src/main/java/com/recoverai/execution/RecoveryExecutionService.java`
 is the first component that actually wires AI recommendation, policy
 authorization, and payment execution together — see
-[README.md § Recovery Execution Pipeline](../README.md#recovery-execution-pipeline-phase-7)
+[README.md § Recovery Execution Pipeline](../README.md)
 for the full flow diagram, the `amountRecovered` honesty rule, and the
 layered idempotency design. Architecturally relevant points not covered
 there:
@@ -446,7 +446,7 @@ there:
 `backend/src/main/java/com/recoverai/demo/RecoveryDemoService.java` adds a
 read/aggregation layer over Phases 3-7 for the 5 fixed named demo
 transactions - see
-[README.md § Failure-Recovery Demo](../README.md#failure-recovery-demo-phase-8)
+[README.md § Failure-Recovery Demo](../README.md)
 for the scenario table and API examples. Architecturally relevant points
 not covered there:
 
@@ -545,7 +545,7 @@ One data-minimization change: `TransactionDetailResponse.customerEmail` is
 now partially masked in `TransactionDetailResponse.from()` rather than
 returned raw - the only DTO field this phase changed.
 
-See [README.md § Audit, Compliance & Production Hardening](../README.md#audit-compliance--production-hardening)
+See [README.md § Audit, Compliance & Production Hardening](../README.md)
 for the full review (AI safety, payment safety, idempotency, audit trail,
 PII, CORS, actuator, database, logging, dependencies) and known
 limitations - most significantly, **no authentication exists on any

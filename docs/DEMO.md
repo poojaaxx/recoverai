@@ -6,14 +6,14 @@ real, wired, and viewable in one place — both as a single JSON call and as
 a polished frontend page. A general-purpose transaction dashboard (any
 transaction, not just the 5 curated ones) is still a future phase. As of
 Phase 9, this same walkthrough is live on the internet — see
-[README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
+[README.md § Live deployment](../README.md) for
 the real URLs, provider setup, environment variables, and what was
 verified against the live system; this document stays focused on running
 and understanding the demo itself, locally or deployed. Phase 10 added a
 security/compliance hardening pass (rate limiting, security headers,
 masked customer email, a global error-handling safety net) with no change
 to the demo flow itself — see
-[README.md § Audit, Compliance & Production Hardening](../README.md#audit-compliance--production-hardening).
+[README.md § Audit, Compliance & Production Hardening](../README.md).
 One practical note if a demo hits it: the evaluation/execution endpoints
 now return `429` if the same client sends more than 20 requests in 60
 seconds — normal clicking through the demo page stays well under that.
@@ -21,7 +21,7 @@ seconds — normal clicking through the demo page stays well under that.
 ## Running the demo
 
 **Locally** — backend (see
-[README.md § Running locally](../README.md#running-locally) for full setup):
+[README.md § Running locally](../README.md) for full setup):
 
 ```bash
 cd backend
@@ -31,15 +31,15 @@ SPRING_PROFILES_ACTIVE=local mvn spring-boot:run   # or the PostgreSQL profile
 The demo runs against whatever data is currently seeded. If the 5 named
 demo transactions don't exist yet, seed them first (from a test, or by
 setting `DEMO_SEED_ENABLED=true` to seed once at startup — see
-[README.md § Seed data](../README.md#7-seed-data); `POST /api/demo/seed` as
+[README.md § Seed data](../README.md); `POST /api/demo/seed` as
 an on-demand HTTP trigger remains unbuilt — see
-[README.md § Known limitations — Phase 8](../README.md#known-limitations--phase-8)).
+[README.md § Known limitations — Phase 8](../README.md)).
 `DemoDataSeederTest`/any test that autowires `DemoDataSeeder` and calls
 `seed()` will also populate them against a local H2/Postgres instance.
 
 **Deployed** — the application is live; the exact same walkthrough works
 against these real URLs (see
-[README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
+[README.md § Live deployment](../README.md) for
 the full provider/environment/verification record):
 
 - Frontend demo page: https://recoverai-bay.vercel.app/demo/recovery
@@ -139,7 +139,7 @@ Every case demonstrates that the **policy engine, not the AI**, decides
 what happens — and that even the one case that does execute never claims
 money was recovered. "Payment link created" is not "money recovered" —
 see
-[README.md § Recovery Execution Pipeline](../README.md#recovery-execution-pipeline-phase-7).
+[README.md § Recovery Execution Pipeline](../README.md).
 
 ## Repeatability
 
@@ -150,7 +150,7 @@ execution attempt is naturally re-blocked by Phase 4's existing
 Phase 7's execution endpoint), so no scenario can accumulate extra
 `RecoveryAttempt` rows or drift into a contradictory state just from being
 viewed again. See
-[README.md § Failure-Recovery Demo](../README.md#failure-recovery-demo-phase-8)
+[README.md § Failure-Recovery Demo](../README.md)
 for why no `POST /api/demo/reset` was needed.
 
 ## Still to come

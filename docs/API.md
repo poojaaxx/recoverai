@@ -8,14 +8,14 @@ Phase 9 (production deployment), Phase 10 (audit, compliance & production
 hardening), and Phase 11 (interactive recovery console) complete — the API
 described below is live at https://recoverai-xrky.onrender.com. Endpoints
 are documented here as they are implemented; see
-[README.md](../README.md#project-status) for overall phase progress and
-[README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
+[README.md](../README.md) for overall phase progress and
+[README.md § Live deployment](../README.md) for
 the deployment record.
 
 Phase 6 deliberately added **no new endpoint** - `PaymentGateway` (mock by
 default, real Razorpay Payment Links when explicitly enabled) was
 infrastructure for Phase 7 to call. See
-[README.md § Razorpay Integration / Payment Adapter](../README.md#razorpay-integration--payment-adapter-phase-6).
+[README.md § Razorpay Integration / Payment Adapter](../README.md).
 
 Status update - Phase 10 (audit, compliance & production hardening)
 complete, no new endpoints added. Two cross-cutting behaviors apply to
@@ -26,13 +26,13 @@ every endpoint below as of this phase:
   genuinely unexpected server error returns a generic
   `{"error": "An unexpected error occurred. Please try again shortly."}`
   with `500` - never a stack trace, exception class, SQL, or internal
-  path (verified live). See [README.md § Error handling](../README.md#error-handling).
+  path (verified live). See [README.md § Error handling](../README.md).
 - **Rate limiting**: `POST /api/recovery-agent/evaluate*`,
   `POST /api/revenue-risk/analyze-all`, and
   `POST /api/recovery/{id}/execute` return `429 Too Many Requests`
   (`{"error": "Too many requests. Please slow down and try again shortly."}`,
   with a `Retry-After` header) if a single client exceeds the configured
-  window (default 20 requests/60s). See [README.md § Rate limiting](../README.md#rate-limiting--abuse-protection).
+  window (default 20 requests/60s). See [README.md § Rate limiting](../README.md).
 
 ## Implemented
 
@@ -97,12 +97,12 @@ that ID exists.
 **Phase 10:** `customerEmail` is partially masked (e.g.
 `j***e@example.com`) before it ever leaves the server — this endpoint has
 no authentication and nothing in this project's frontend currently reads
-the raw address. See [README.md § PII / data-minimization review](../README.md#pii--data-minimization-review).
+the raw address. See [README.md § PII / data-minimization review](../README.md).
 
 ### Revenue Risk Engine (Phase 3)
 
 All of these are deterministic — no AI/LLM call is made. See
-[README.md § Revenue Risk Engine](../README.md#revenue-risk-engine-phase-3)
+[README.md § Revenue Risk Engine](../README.md)
 for the scoring model itself.
 
 #### `POST /api/revenue-risk/analyze/{transactionId}`
@@ -188,7 +188,7 @@ Paginated list of all `RevenueRisk` records, optionally filtered by
 
 Deterministic — no AI/LLM call is made, and this endpoint never executes a
 recovery action. See
-[README.md § Recovery Safety / Policy Engine](../README.md#recovery-safety--policy-engine-phase-4)
+[README.md § Recovery Safety / Policy Engine](../README.md)
 for the full check pipeline and demo-scenario outcomes.
 
 #### `POST /api/recovery-policy/evaluate/{transactionId}`
@@ -240,7 +240,7 @@ check.
 The AI only recommends — `com.recoverai.policy.RecoveryPolicyService`
 (unchanged from Phase 4) remains the sole authorization boundary; neither
 endpoint executes anything or calls Razorpay. See
-[README.md § AI Recovery Agent](../README.md#ai-recovery-agent-phase-5)
+[README.md § AI Recovery Agent](../README.md)
 for the full pipeline, provider abstraction, and demo-scenario outcomes.
 
 #### `POST /api/recovery-agent/evaluate/{transactionId}`
@@ -318,7 +318,7 @@ execution occurs anywhere in this phase.
 The only production-shaped execution endpoint - runs the full AI
 recommendation → policy authorization → payment execution pipeline and
 executes only when the fresh policy decision is `ALLOW`. See
-[README.md § Recovery Execution Pipeline](../README.md#recovery-execution-pipeline-phase-7)
+[README.md § Recovery Execution Pipeline](../README.md)
 for the full flow and the `amountRecovered` honesty rule.
 
 #### `POST /api/recovery/{transactionId}/execute`
@@ -388,7 +388,7 @@ that would let a caller choose an arbitrary action.
 A read/aggregation layer over the real Phase 3-7 pipeline, run against the
 5 fixed named demo transactions — no new risk/AI/policy/payment decision
 logic. See
-[README.md § Failure-Recovery Demo](../README.md#failure-recovery-demo-phase-8)
+[README.md § Failure-Recovery Demo](../README.md)
 for the full design and the exact per-scenario expected outcomes.
 Intentionally `GET`, even though calling it re-runs the real pipeline
 (risk re-analysis, and `RecoveryExecutionService.execute()` exactly as
@@ -509,5 +509,5 @@ phases:
 `POST /api/recovery/execute/{transactionId}` was implemented in Phase 7 as
 `POST /api/recovery/{transactionId}/execute` (see above). `POST
 /api/demo/reset` was deliberately not built in Phase 8 — see
-[README.md § Known limitations — Phase 8](../README.md#known-limitations--phase-8)
+[README.md § Known limitations — Phase 8](../README.md)
 for why it isn't needed.
