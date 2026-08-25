@@ -4,8 +4,9 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (revenue risk engine), Phase 4 (recovery safety / policy engine), Phase 5
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
-and Phase 9 (production deployment) complete — this architecture is
-deployed and live (Neon PostgreSQL, Render backend, Vercel frontend; see
+Phase 9 (production deployment), and Phase 10 (audit, compliance &
+production hardening) complete — this architecture is deployed and live
+(Neon PostgreSQL, Render backend, Vercel frontend; see
 [README.md § Live deployment](../README.md#12-live-deployment-phase-9)).
 This document will be filled in further as later phases (batch execution,
 recovery metrics, dashboard) land, so that it always accurately reflects
@@ -509,6 +510,47 @@ not covered there:
   no shared-schema code generation step in this project, matching how the
   rest of the frontend already talks to the backend (plain `axios` calls
   typed by hand).
+
+## Audit, Compliance & Production Hardening (Phase 10)
+
+A hardening pass over the existing architecture above - no new component
+changes the AI -> Policy -> Execution -> Audit boundary; three new
+cross-cutting components were added, all in `com.recoverai.config`:
+
+- **`GlobalExceptionHandler`** (`@RestControllerAdvice`) - a safety net for
+  exceptions no controller-local `@ExceptionHandler` already catches.
+  Spring always prefers the more specific handler, so every existing
+  local handler (`TransactionNotFoundException` -> 404, etc.) is
+  unaffected. Normalizes a malformed path parameter to this API's usual
+  `{"error": "..."}` shape and guarantees any unexpected exception is
+  logged server-side while the client sees only a generic, safe message.
+- **`SecurityHeadersFilter`** (`OncePerRequestFilter`) - adds
+  `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, `Cache-Control: no-store`, and
+  `Strict-Transport-Security` to every response.
+- **`RateLimitFilter`** (`OncePerRequestFilter`, `@Profile("!test")`) - an
+  in-memory, per-client, fixed-window limiter guarding
+  `/api/recovery-agent/evaluate*`, `/api/revenue-risk/analyze-all`, and
+  `/api/recovery/{id}/execute`. Configured via `RateLimitProperties`
+  (`recoverai.rate-limit.*` / `RATE_LIMIT_*` env vars). Deliberately
+  per-instance in-memory rather than Redis-backed - correct for this
+  single-instance deployment, explicitly documented as insufficient for a
+  real multi-instance one (see README § Rate limiting). Disabled in the
+  `test` profile (mirrors `DemoSeedRunner`'s existing pattern) so it can
+  never affect existing test request volume; covered instead by a
+  dedicated unit test that instantiates and drives it directly.
+
+One data-minimization change: `TransactionDetailResponse.customerEmail` is
+now partially masked in `TransactionDetailResponse.from()` rather than
+returned raw - the only DTO field this phase changed.
+
+See [README.md § Audit, Compliance & Production Hardening](../README.md#audit-compliance--production-hardening)
+for the full review (AI safety, payment safety, idempotency, audit trail,
+PII, CORS, actuator, database, logging, dependencies) and known
+limitations - most significantly, **no authentication exists on any
+endpoint in this codebase**, a deliberate scope boundary for this phase
+(not a hardening gap that was missed), documented there as the top
+recommendation before any real-payments deployment.
 
 ## Sections to be added in later phases
 

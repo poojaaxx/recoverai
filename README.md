@@ -37,6 +37,7 @@ See [Project status](#project-status) for what exists today.
 19. [What is real vs. simulated](#what-is-real-vs-simulated)
 20. [Known limitations](#known-limitations)
 21. [Buildathon Deployment](#buildathon-deployment)
+22. [Audit, Compliance & Production Hardening](#audit-compliance--production-hardening)
 
 Further sections (AI architecture, safety architecture, Razorpay
 integration, dataset, evaluation methodology, metrics, failure handling,
@@ -1498,3 +1499,261 @@ mocked):**
 - `AI_PROVIDER=mock` and `RAZORPAY_MODE=simulation` remain the live
   defaults, per this task's explicit instruction not to enable real
   external credentials without being separately asked.
+
+## Audit, Compliance & Production Hardening
+
+Phase 10 is a security/compliance audit and hardening pass over the
+already-complete, already-deployed system (Phases 1-9) — **no new product
+features, no architectural changes, no weakened safety boundary.** The
+core invariant is unchanged and was re-verified, not just re-asserted:
+
+```
+AI RECOMMENDS -> POLICY AUTHORIZES -> EXECUTION EXECUTES -> AUDIT RECORDS
+```
+
+This is a **compliance-oriented technical hardening pass and demo**, not a
+certification. It does not claim PCI DSS, GDPR, RBI, or any other formal
+regulatory compliance.
+
+### Security audit
+
+A repository-wide search (tracked files, working tree, and disk — not
+just staged changes) for hardcoded secrets, API keys, database passwords,
+private keys, and credentials in code/tests/docs found **none**. `.env`
+and every real `.env.*` variant remain gitignored (`.env.example` is the
+only intentional exception); no build artifact (`target/`, `dist/`,
+`node_modules/`, `.data/`) is tracked. Every credential
+(`DB_PASSWORD`, `ANTHROPIC_API_KEY`, `RAZORPAY_KEY_ID`/`KEY_SECRET`/
+`WEBHOOK_SECRET`) is read only from an environment variable via
+`@ConfigurationProperties`/`@Value`, with an empty-string default — never
+a literal value in source. Frontend source was checked separately: the
+only `VITE_*` variable this project reads is `VITE_API_BASE_URL` (never a
+secret).
+
+### AI authorization boundary
+
+Structurally: `RecoveryAgentService` and `RecoveryPolicyService` hold no
+field of type `PaymentGateway` (`RecoveryPipelineIsolationTest`, proven by
+reflection — not merely untested, *impossible*). Behaviorally: the AI's
+recommendation and the policy's final decision are independent fields in
+every response, and execution only ever follows `PolicyDecision.ALLOW`.
+This phase added two adversarial cases that were previously exercised only
+implicitly:
+
+- **Mismatched `transactionId`** in an AI recommendation — already
+  rejected by `RecoveryAgentService.isValid()`, now explicitly tested
+  (`RecoveryAgentServiceTest.mismatchedTransactionId_isRejected_
+  fallsBackSafely`), falls back to a safe `ESCALATE`.
+- **`CREATE_PAYMENT_LINK` recommended for an already-`RECOVERED`
+  transaction** — blocked unconditionally by policy's transaction-status
+  check regardless of the recommended action, now explicitly tested
+  (`aiRecommendsPaymentLink_transactionAlreadyRecovered_isBlockedRegardless`).
+
+Every other adversarial case this phase's spec called for (provider throws,
+malformed JSON, invalid confidence, negative expected value, AI-vs-policy
+disagreement on amount/retry/stop limits) was already covered by the
+existing `RecoveryAgentServiceTest` suite from Phase 5 — reviewed and
+confirmed still correct, not duplicated.
+
+### Payment / Razorpay safety
+
+`RazorpayPaymentGateway` and `MockPaymentGateway` reviewed line by line:
+the API key/secret are used only to build the outgoing `Authorization`
+header, are never logged, never appear in audit metadata, and are never
+echoed in any response (log statements only ever include a transaction id,
+HTTP status code, or exception class name). Provider errors are sanitized
+before ever reaching a caller — a raw non-2xx response, malformed JSON, an
+amount mismatch, or a network failure all map to a structured, generic
+`PaymentExecutionResult` with a category (`PaymentFailureReason`), never
+the raw provider response body. No automatic retry occurs anywhere in this
+path — `RazorpayPaymentGateway.execute()` makes exactly one call and
+returns. `PaymentGatewayValidation` independently re-validates action,
+amount, and currency (INR-only) even though every field it checks is
+already server-derived — defense in depth, not the primary boundary.
+`RAZORPAY_ENABLED=false` / `RAZORPAY_MODE=simulation` remain the deployed
+defaults; this phase did not enable real Razorpay calls.
+
+### Idempotency & concurrency
+
+Unchanged from Phase 7, re-verified: a duplicate request is caught cheaply
+by a `SELECT` before ever attempting an insert; a genuine concurrent race
+between two threads is resolved by the database's own unique constraint on
+`recovery_attempts.idempotency_key` (migration `V9`) — the losing insert's
+`DataIntegrityViolationException` is caught and the loser is handed the
+winner's already-committed result in a fresh transaction. `RecoveryExecutionConcurrencyTest`
+fires concurrent requests at the same transaction and asserts exactly one
+gateway invocation and no inconsistent state — reviewed and confirmed
+still passing; no change was made to this mechanism.
+
+### Transaction state safety
+
+`RecoveryExecutionService` only ever transitions a transaction to
+`RECOVERED` when `result.success() && result.amountRecovered() > 0`.
+Today's providers (mock and Razorpay) can never satisfy that condition —
+both always report `amountRecovered = 0`, since creating/sending a payment
+link is not confirmed payment. `RecoveryExecutionServiceTest.
+providerFailure_transactionNeverMarkedRecovered` and the mock/Razorpay
+mapping tests confirm this holds even on a reported "success". No route in
+this codebase can mark a transaction `RECOVERED` without a genuinely
+confirmed non-zero amount, and none currently can produce one.
+
+### Audit trail
+
+Every meaningful decision is recorded: risk detection, AI recommendation,
+policy evaluation, execution start/completion/failure, escalation, stop,
+block. `AuditLog.metadata` contains only operational facts (provider name,
+decision, amount, action, confidence) — reviewed and confirmed it never
+contains a password, API key, Authorization header, or raw provider
+response. Both `RecoveryPolicyService` and `RecoveryAgentService` dedupe
+identical repeated evaluations against the same transaction+action/decision
+pair before writing a new audit row (an evaluation endpoint is expected to
+be polled without flooding the trail) — an intentional tradeoff, unchanged
+by this phase, documented here for visibility rather than left implicit.
+
+### PII / data-minimization review
+
+`Customer` name and email are the only PII this system stores.
+`TransactionSummaryResponse` returns `customerName` only (needed for a
+merchant to identify whose transaction it is). `TransactionDetailResponse`
+previously returned the customer's **full, unmasked email address** from
+an endpoint with no authentication — reviewed and found unnecessary
+(nothing in this project's frontend currently reads it) and **fixed**:
+`customerEmail` is now partially masked before it ever leaves the server
+(`j***e@example.com`), preserving the field's purpose (recognizing a
+repeat customer) while minimizing exposure. `RecoveryAgentContext` — the
+only data ever sent to a third-party AI provider — was independently
+confirmed to already exclude name/email; only IDs, amounts, statuses, and
+aggregate counts are sent.
+
+### Error handling
+
+Spring Boot's default error handling was verified **live**, not assumed:
+a malformed request (bad UUID, unknown route) returns only
+`{timestamp, status, error, path}` — no stack trace, no exception class,
+no SQL, no internal path, confirmed by direct testing against the
+deployed backend. This phase adds `GlobalExceptionHandler`
+(`@RestControllerAdvice`) as an explicit safety net for anything not
+already handled by a controller-local handler: a malformed path parameter
+now returns this API's normal `{"error": "..."}` shape instead of Spring's
+generic body, and any genuinely unexpected exception is guaranteed to be
+logged server-side with full detail while the client only ever sees a
+generic, safe message. `server.error.include-stacktrace/exception/message/
+binding-errors` are also now pinned explicitly in `application.yml` to
+Spring Boot's own safe defaults — self-documenting rather than implicit.
+Existing controller-local handlers (`TransactionNotFoundException` -> 404,
+etc.) are unaffected — Spring always prefers the more specific handler.
+
+### CORS & HTTP security headers
+
+CORS unchanged and re-verified: `WebConfig` restricts `/api/**` to exactly
+`FRONTEND_URL`/`CORS_ALLOWED_ORIGINS` (no `*`, no `allowCredentials`, so no
+wildcard+credentials risk exists regardless). This phase adds
+`SecurityHeadersFilter`, applying safe headers to every response —
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`, a minimal
+`Permissions-Policy`, `Cache-Control: no-store`, and
+`Strict-Transport-Security` — none of which can break a JSON-only API with
+no HTML views.
+
+### Rate limiting / abuse protection
+
+The endpoints that do real, non-trivial work per call — AI evaluation
+(`/api/recovery-agent/evaluate*`), batch risk analysis
+(`/api/revenue-risk/analyze-all`), and recovery execution
+(`/api/recovery/{id}/execute`) — previously had no protection against
+uncontrolled repeated requests. This phase adds `RateLimitFilter`: a
+lightweight, in-memory, per-client (via `X-Forwarded-For`, falling back to
+the remote address) fixed-window limiter (default 20 requests/60s,
+configurable via `RATE_LIMIT_*` env vars), returning `429` with
+`Retry-After` when exceeded. **Deliberately not infrastructure-backed** —
+no Redis, no gateway — appropriate for this single-instance buildathon
+deployment specifically because it introduces no new dependency.
+**Production recommendation**: a real multi-instance deployment needs a
+shared store (Redis) or edge/gateway-level rate limiting, since this
+filter's counters are per-instance and reset on restart.
+
+### Actuator / health endpoint review
+
+Unchanged, re-confirmed: `GET /api/health` returns a fixed, minimal
+`{status, service, timestamp}` — no dependency details ever. Actuator
+exposes only `health,info` (`management.endpoints.web.exposure.include`),
+with `management.endpoint.health.show-details: never`, so
+`/actuator/health` can only ever report `{"status":"UP"}` or
+`{"status":"DOWN"}`. `/actuator/info` returns `{}` (no `build-info`/
+`git-info` goal is configured in `pom.xml`). No `/actuator/env`,
+`/actuator/beans`, `/actuator/configprops`, `/actuator/mappings`, or
+`/actuator/heapdump` is exposed.
+
+### Database hardening
+
+Migrations `V1`-`V10` reviewed: 76 `NOT NULL`/`CHECK`/`UNIQUE`/
+`FOREIGN KEY`/index definitions across the schema; the only `DROP` in any
+migration is `V8`'s `DROP INDEX IF EXISTS` immediately superseded by an
+equivalent `UNIQUE` constraint (which Postgres backs with its own index) —
+no data-destructive statement exists anywhere. `ddl-auto: validate`
+remains authoritative in every profile except `local` (H2, dev-only);
+Flyway remains the only source of schema change. No migration was added,
+removed, or modified by this phase.
+
+### Logging / observability
+
+Every `log.*` call in the codebase was searched for request bodies,
+credentials, and headers — none found; the only fields logged around
+payment/AI calls are a transaction id, an HTTP status code, or an
+exception class name. **Production recommendation**: this deployment logs
+to Render's console log only (no structured logging, no external
+APM/error tracker, no uptime monitor). A real production deployment should
+add structured JSON logging plus an external log sink, an APM/error
+tracker (e.g. Sentry), and uptime/latency alerting — none of which this
+phase added, to avoid introducing new infrastructure beyond what a
+buildathon demo needs.
+
+### Dependency / build audit
+
+Backend `pom.xml` reviewed: every dependency is used for a clear purpose
+(`h2` for the offline `local`/`test` profiles, `webflux` for the AI/
+Razorpay `WebClient` calls, `embedded-postgres` for real-Postgres
+integration testing) — no unnecessary or duplicated dependency found, no
+change made. Frontend `package.json`: **`recharts` was listed but never
+imported anywhere in `frontend/src`** — removed (`npm install` afterward
+removed 39 now-unnecessary transitive packages, `npm audit` reports 0
+vulnerabilities, production bundle unaffected apart from being smaller).
+No dependency version was upgraded as part of this audit.
+
+### New security regression tests (Phase 10)
+
+`RecoveryAgentServiceTest` (+2): mismatched-transactionId rejection,
+`CREATE_PAYMENT_LINK`-on-`RECOVERED` blocked. `TransactionControllerTest`
+(+2): masked email in the API response, normalized 400 for a malformed
+UUID path variable. `RateLimitFilterTest` (new, 7 cases): under/over
+limit, per-client isolation, unguarded paths never limited, the execute
+endpoint is guarded, the master `enabled` switch, `X-Forwarded-For`
+precedence. `SecurityHeadersFilterTest` (new, 1 case): every response
+carries the expected headers. All 16 items on this phase's security
+regression checklist were confirmed — 14 were already covered by the
+existing Phase 4-8 test suites (reviewed, not duplicated); the 2 genuine
+gaps (mismatched transactionId, secrets-in-logging as a manual code-review
+item rather than an automated assertion) are addressed above.
+
+### Known limitations / production recommendations
+
+- **No authentication or authorization exists on any endpoint.** Every
+  API in this project, including `POST /api/recovery/{id}/execute`, is
+  reachable by anyone with the URL — safety comes entirely from the
+  policy engine deciding *whether* an action is authorized, not from
+  restricting *who* can ask. This is a deliberate scope boundary (adding
+  auth is a substantial product feature, not a hardening change, and this
+  task's instructions were explicit: no new product features) but is the
+  single most important gap before this could handle real payments data.
+  **Recommendation**: API-key or OAuth-based merchant-scoped access before
+  any real deployment beyond a demo.
+- The rate limiter (above) is per-instance and in-memory — resets on
+  restart, does not coordinate across multiple instances.
+- This deployment is a single Render instance with no high-availability
+  failover, and Render's free tier cold-starts after inactivity (see
+  [Live deployment](#12-live-deployment-phase-9)).
+- No external monitoring/alerting is configured (see Logging above).
+- The revenue-risk scoring weights remain application-invented,
+  illustrative values (see [Revenue Risk Engine](#revenue-risk-engine-phase-3)) —
+  unrelated to this phase, restated here for completeness of the
+  compliance picture.

@@ -9,7 +9,14 @@ Phase 9, this same walkthrough is live on the internet — see
 [README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
 the real URLs, provider setup, environment variables, and what was
 verified against the live system; this document stays focused on running
-and understanding the demo itself, locally or deployed.
+and understanding the demo itself, locally or deployed. Phase 10 added a
+security/compliance hardening pass (rate limiting, security headers,
+masked customer email, a global error-handling safety net) with no change
+to the demo flow itself — see
+[README.md § Audit, Compliance & Production Hardening](../README.md#audit-compliance--production-hardening).
+One practical note if a demo hits it: the evaluation/execution endpoints
+now return `429` if the same client sends more than 20 requests in 60
+seconds — normal clicking through the demo page stays well under that.
 
 ## Running the demo
 

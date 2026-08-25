@@ -4,10 +4,11 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (revenue risk engine), Phase 4 (recovery safety / policy engine), Phase 5
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
-and Phase 9 (production deployment) complete — the API described below is
-live at https://recoverai-xrky.onrender.com. Endpoints are documented here
-as they are implemented; see [README.md](../README.md#project-status) for
-overall phase progress and
+Phase 9 (production deployment), and Phase 10 (audit, compliance &
+production hardening) complete — the API described below is live at
+https://recoverai-xrky.onrender.com. Endpoints are documented here as they
+are implemented; see [README.md](../README.md#project-status) for overall
+phase progress and
 [README.md § Live deployment](../README.md#12-live-deployment-phase-9) for
 the deployment record.
 
@@ -15,6 +16,23 @@ Phase 6 deliberately added **no new endpoint** - `PaymentGateway` (mock by
 default, real Razorpay Payment Links when explicitly enabled) was
 infrastructure for Phase 7 to call. See
 [README.md § Razorpay Integration / Payment Adapter](../README.md#razorpay-integration--payment-adapter-phase-6).
+
+Status update - Phase 10 (audit, compliance & production hardening)
+complete, no new endpoints added. Two cross-cutting behaviors apply to
+every endpoint below as of this phase:
+
+- **Errors**: a known failure (not found, validation, malformed input)
+  returns `{"error": "<message>"}` with an appropriate 4xx status. Any
+  genuinely unexpected server error returns a generic
+  `{"error": "An unexpected error occurred. Please try again shortly."}`
+  with `500` - never a stack trace, exception class, SQL, or internal
+  path (verified live). See [README.md § Error handling](../README.md#error-handling).
+- **Rate limiting**: `POST /api/recovery-agent/evaluate*`,
+  `POST /api/revenue-risk/analyze-all`, and
+  `POST /api/recovery/{id}/execute` return `429 Too Many Requests`
+  (`{"error": "Too many requests. Please slow down and try again shortly."}`,
+  with a `Retry-After` header) if a single client exceeds the configured
+  window (default 20 requests/60s). See [README.md § Rate limiting](../README.md#rate-limiting--abuse-protection).
 
 ## Implemented
 
@@ -75,6 +93,11 @@ status, no sorting options exposed yet).
 `customerEmail`, `failureCode`, `failureReason`, `updatedAt` over the
 summary shape above). **Response `404 Not Found`** if no transaction with
 that ID exists.
+
+**Phase 10:** `customerEmail` is partially masked (e.g.
+`j***e@example.com`) before it ever leaves the server — this endpoint has
+no authentication and nothing in this project's frontend currently reads
+the raw address. See [README.md § PII / data-minimization review](../README.md#pii--data-minimization-review).
 
 ### Revenue Risk Engine (Phase 3)
 
