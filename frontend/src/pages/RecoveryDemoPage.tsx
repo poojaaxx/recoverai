@@ -5,7 +5,7 @@ import { useAsyncAction } from '../hooks/useAsyncAction'
 import { Badge, outcomeTone, policyTone, riskTone } from '../components/Badge'
 import { ScenarioOperations } from '../components/ScenarioOperations'
 import { outcomeLabel, type PolicyDecision, type RecoveryDemoScenario, type RecoveryDemoSummary } from '../types/demo'
-import type { BatchAgentEvaluationResult, BatchRiskAnalysisResult, RecoveryMetrics } from '../types/recovery'
+import type { BatchAgentEvaluationResult, BatchRiskAnalysisResult, RecoveryMetrics, RiskMetrics } from '../types/recovery'
 import type { ObservabilityMetrics } from '../types/observability'
 
 const currency = new Intl.NumberFormat('en-IN', {
@@ -72,7 +72,7 @@ function FilterChip({
 /** A step's visual state, derived only from real fields on the selected scenario — never simulated. */
 type StepState = 'done' | 'active' | 'pending'
 
-function stepBox(label: string, state: StepState) {
+function stepBox(label: string, state: StepState, detail?: string) {
   const classes =
     state === 'done'
       ? 'border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] text-[var(--color-accent)]'
@@ -81,7 +81,8 @@ function stepBox(label: string, state: StepState) {
         : 'border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text-secondary)]'
   return (
     <div key={label} className={`rounded-lg border px-3 py-1.5 font-medium ${classes}`}>
-      {label}
+      <div>{label}</div>
+      {detail && <div className="text-[10px] font-normal opacity-80">{detail}</div>}
     </div>
   )
 }
@@ -109,6 +110,17 @@ function PipelineDiagram({ scenario }: { scenario: RecoveryDemoScenario | null }
   const allowState: StepState = hasPolicy ? (isAllow ? 'done' : isNoBranch ? 'pending' : 'active') : 'pending'
   const executeState: StepState = executed ? 'done' : isAllow ? 'active' : 'pending'
   const noBranchState: StepState = isNoBranch ? 'done' : 'pending'
+  const confirmationState: StepState =
+    scenario?.paymentConfirmationStatus === 'CONFIRMED' ? 'done' : executed ? 'active' : 'pending'
+
+  const riskDetail = scenario ? `${scenario.riskScore.toFixed(0)} · ${scenario.riskLevel}` : undefined
+  const aiDetail = scenario?.aiRecommendedAction
+    ? `${scenario.aiRecommendedAction}${scenario.aiConfidence != null ? ` · ${(scenario.aiConfidence * 100).toFixed(0)}%` : ''}`
+    : undefined
+  const policyDetail = scenario?.policyDecision ?? undefined
+  const executeDetail = scenario?.executed ? (scenario.executionStatus ?? undefined) : undefined
+  const confirmationDetail =
+    scenario?.confirmedAmount != null ? currency.format(scenario.confirmedAmount) : scenario?.executed ? 'Pending' : undefined
 
   return (
     <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-1)] p-5">
@@ -120,11 +132,11 @@ function PipelineDiagram({ scenario }: { scenario: RecoveryDemoScenario | null }
       <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
         {stepBox('Payment Failure', failureState)}
         <span className="text-[var(--color-text-secondary)]">→</span>
-        {stepBox('Risk Detection', riskState)}
+        {stepBox('Risk Detection', riskState, riskDetail)}
         <span className="text-[var(--color-text-secondary)]">→</span>
-        {stepBox('AI Recommendation', aiState)}
+        {stepBox('AI Recommendation', aiState, aiDetail)}
         <span className="text-[var(--color-text-secondary)]">→</span>
-        {stepBox('Safety Policy', policyState)}
+        {stepBox('Safety Policy', policyState, policyDetail)}
         <span className="text-[var(--color-text-secondary)]">→</span>
         <div
           className={`rounded-lg border px-3 py-1.5 font-medium ${
@@ -140,9 +152,9 @@ function PipelineDiagram({ scenario }: { scenario: RecoveryDemoScenario | null }
         <div className="flex items-center gap-2">
           <Badge tone={allowState === 'done' ? 'success' : 'neutral'}>YES</Badge>
           <span className="text-[var(--color-text-secondary)]">→</span>
-          {stepBox('Execute Payment', executeState)}
+          {stepBox('Execute Payment', executeState, executeDetail)}
           <span className="text-[var(--color-text-secondary)]">→</span>
-          {stepBox('Confirmation', 'pending')}
+          {stepBox('Confirmation', confirmationState, confirmationDetail)}
           <span className="text-[var(--color-text-secondary)]">→</span>
           {stepBox('Audit', hasPolicy ? 'done' : 'pending')}
         </div>
@@ -200,6 +212,11 @@ function ScenarioCard({
         <span className="text-[var(--color-text-secondary)]">·</span>
         <Badge tone={policyTone(scenario.policyDecision)}>{scenario.policyDecision ?? 'N/A'}</Badge>
       </div>
+      {scenario.aiRecommendedAction && scenario.finalAction && scenario.aiRecommendedAction !== scenario.finalAction && (
+        <div className="mt-2 rounded-md border border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] px-2 py-1 text-[11px] text-[var(--color-warning)]">
+          AI recommended <strong>{scenario.aiRecommendedAction}</strong>, policy authorized <strong>{scenario.finalAction}</strong>
+        </div>
+      )}
     </button>
   )
 }
@@ -270,9 +287,53 @@ function PortfolioMetricsPanel({ metrics }: { metrics: RecoveryMetrics }) {
         {stat('Revenue at risk', currency.format(metrics.totalRevenueAtRisk))}
         {stat('Potentially recoverable', currency.format(metrics.potentiallyRecoverableRevenue), 'accent')}
         {stat('Recovery attempts', String(metrics.recoveryAttempts))}
+        {stat('Provider executions', String(metrics.successfulExecutionCount))}
         {stat('Confirmed recoveries', String(metrics.confirmedRecoveryCount))}
         {stat('Confirmed revenue recovered', currency.format(metrics.confirmedRecoveredRevenue), 'success')}
         {stat('Pending confirmation', currency.format(metrics.pendingConfirmationAmount))}
+      </div>
+    </div>
+  )
+}
+
+/** "RecoverAI evaluates transactions individually, but measures confirmed recovery across the portfolio." A compact real-numbers funnel — every figure from an already-fetched backend response, never computed client-side. */
+function PortfolioNarrative({
+  risk,
+  observability,
+  metrics,
+}: {
+  risk: RiskMetrics
+  observability: ObservabilityMetrics
+  metrics: RecoveryMetrics
+}) {
+  const decisionsTotal =
+    observability.policyDecisions.allow +
+    observability.policyDecisions.block +
+    observability.policyDecisions.escalate +
+    observability.policyDecisions.stop
+  const step = (label: string, value: string) => (
+    <div className="flex flex-col items-center">
+      <div className="text-lg font-semibold text-[var(--color-text-primary)]">{value}</div>
+      <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-secondary)]">{label}</div>
+    </div>
+  )
+  return (
+    <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-1)] p-5">
+      <p className="text-sm text-[var(--color-text-secondary)]">
+        RecoverAI evaluates transactions individually, but measures confirmed recovery across the portfolio.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+        {step('Total transactions', String(risk.totalTransactions))}
+        <span className="text-[var(--color-text-secondary)]">→</span>
+        {step('At risk', String(risk.atRiskTransactions))}
+        <span className="text-[var(--color-text-secondary)]">→</span>
+        {step('Policy decisions', String(decisionsTotal))}
+        <span className="text-[var(--color-text-secondary)]">→</span>
+        {step('Recovery attempts', String(metrics.recoveryAttempts))}
+        <span className="text-[var(--color-text-secondary)]">→</span>
+        {step('Confirmed payments', String(metrics.confirmedRecoveryCount))}
+        <span className="text-[var(--color-text-secondary)]">→</span>
+        {step('Confirmed revenue', currency.format(metrics.confirmedRecoveredRevenue))}
       </div>
     </div>
   )
@@ -314,6 +375,7 @@ export function RecoveryDemoPage() {
   const [summary, setSummary] = useState<RecoveryDemoSummary | null>(null)
   const [metrics, setMetrics] = useState<RecoveryMetrics | null>(null)
   const [observability, setObservability] = useState<ObservabilityMetrics | null>(null)
+  const [riskMetrics, setRiskMetrics] = useState<RiskMetrics | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [loading, setLoading] = useState(false)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
@@ -360,6 +422,10 @@ export function RecoveryDemoPage() {
     api
       .observabilityMetrics()
       .then((res) => setObservability(res.data))
+      .catch(() => undefined)
+    api
+      .riskMetrics()
+      .then((res) => setRiskMetrics(res.data))
       .catch(() => undefined)
   }
 
@@ -417,7 +483,7 @@ export function RecoveryDemoPage() {
 
       {summary && (
         <>
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <KpiCard
               label="Revenue at risk"
               value={currency.format(summary.totalAmountAtRisk)}
@@ -430,9 +496,14 @@ export function RecoveryDemoPage() {
               tone="accent"
             />
             <KpiCard
+              label="Provider executions"
+              value={String(summary.gatewayCalls)}
+              hint={`${summary.simulatedExecutions} simulated — a provider call, not a confirmed payment`}
+            />
+            <KpiCard
               label="Confirmed revenue recovered"
               value={currency.format(summary.confirmedAmountRecovered)}
-              hint="Only counted after real payment confirmation"
+              hint="Only counted after real payment confirmation — not the same as a provider execution"
               tone="success"
             />
             <KpiCard label="Transactions at risk" value={String(summary.atRiskScenarios)} hint="">
@@ -446,6 +517,9 @@ export function RecoveryDemoPage() {
             </KpiCard>
           </div>
 
+          {riskMetrics && observability && metrics && (
+            <PortfolioNarrative risk={riskMetrics} observability={observability} metrics={metrics} />
+          )}
           {metrics && <PortfolioMetricsPanel metrics={metrics} />}
           {observability && <ObservabilityPanel observability={observability} />}
 
