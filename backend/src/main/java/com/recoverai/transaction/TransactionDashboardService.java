@@ -108,6 +108,7 @@ public class TransactionDashboardService {
                 transaction.getCustomer().getSuccessfulPaymentCount(),
                 transaction.getCustomer().getFailedPaymentCount(),
                 transaction.getCustomer().getTotalHistoricalValue(),
+                transaction.getCustomer().isRecoveryContactAllowed(),
                 risk == null ? null : RevenueRiskResponse.from(risk),
                 attempts,
                 audit

@@ -357,6 +357,7 @@ class TransactionDashboardServiceTest {
         assertThat(detail.transaction().id()).isEqualTo(t.getId());
         assertThat(detail.customerSuccessfulPaymentCount()).isEqualTo(4);
         assertThat(detail.customerTotalHistoricalValue()).isEqualByComparingTo("9000.00");
+        assertThat(detail.customerRecoveryContactAllowed()).isTrue();
         assertThat(detail.risk()).isNotNull();
         assertThat(detail.risk().riskLevel()).isEqualTo(RiskLevel.MEDIUM);
         assertThat(detail.recoveryAttempts()).hasSize(1);

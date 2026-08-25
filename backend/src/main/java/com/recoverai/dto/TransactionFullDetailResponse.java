@@ -17,6 +17,7 @@ public record TransactionFullDetailResponse(
         int customerSuccessfulPaymentCount,
         int customerFailedPaymentCount,
         BigDecimal customerTotalHistoricalValue,
+        boolean customerRecoveryContactAllowed,
         RevenueRiskResponse risk,
         List<RecoveryAttemptSummaryResponse> recoveryAttempts,
         List<AuditTimelineEntryResponse> auditTimeline

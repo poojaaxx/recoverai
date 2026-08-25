@@ -298,6 +298,44 @@ class RecoveryPolicyServiceTest {
         assertThat(response.decision()).isEqualTo(PolicyDecision.ALLOW);
     }
 
+    // ---------------------------------------------------------------- Phase 14 customer consent
+
+    @Test
+    void optedOutCustomer_retryPayment_isBlocked() {
+        customer.setRecoveryContactAllowed(false);
+        customer = customerRepository.save(customer);
+        Transaction txn = transaction(TransactionStatus.FAILED, new BigDecimal("2499.00"), 1);
+
+        RecoveryPolicyDecisionResponse response = recoveryPolicyService.evaluate(txn.getId(), RecoveryAction.RETRY_PAYMENT);
+
+        assertThat(response.decision()).isEqualTo(PolicyDecision.BLOCK);
+        assertThat(response.reason()).contains("opted out");
+    }
+
+    @Test
+    void optedOutCustomer_sendReminder_isBlocked_aiCannotOverride() {
+        // Even the specifically-outreach action (SEND_RECOVERY_REMINDER) is blocked - not just
+        // payment retries - and no AI recommendation can bypass this deterministic check.
+        customer.setRecoveryContactAllowed(false);
+        customer = customerRepository.save(customer);
+        Transaction txn = transaction(TransactionStatus.FAILED, new BigDecimal("2499.00"), 1);
+
+        RecoveryPolicyDecisionResponse response = recoveryPolicyService.evaluate(txn.getId(), RecoveryAction.SEND_RECOVERY_REMINDER);
+
+        assertThat(response.decision()).isEqualTo(PolicyDecision.BLOCK);
+        assertThat(response.policyChecks()).anyMatch(c -> c.name().equals("CUSTOMER_CONSENT") && !c.passed());
+    }
+
+    @Test
+    void optedInCustomer_isUnaffected() {
+        assertThat(customer.isRecoveryContactAllowed()).isTrue();
+        Transaction txn = transaction(TransactionStatus.FAILED, new BigDecimal("2499.00"), 1);
+
+        RecoveryPolicyDecisionResponse response = recoveryPolicyService.evaluate(txn.getId(), RecoveryAction.RETRY_PAYMENT);
+
+        assertThat(response.decision()).isEqualTo(PolicyDecision.ALLOW);
+    }
+
     // ---------------------------------------------------------------- ESCALATE
 
     @Test

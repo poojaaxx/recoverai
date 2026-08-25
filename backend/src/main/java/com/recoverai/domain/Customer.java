@@ -66,4 +66,15 @@ public class Customer {
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
+
+    /**
+     * Phase 14 minimal compliance boundary - when {@code false}, {@code
+     * RecoveryPolicyService} blocks every autonomous recovery action for
+     * this customer's transactions (see {@code checkConsent}), including
+     * batch execution. Server-side only: no client input can set or
+     * override this field through any recovery endpoint.
+     */
+    @Column(name = "recovery_contact_allowed", nullable = false)
+    @Builder.Default
+    private boolean recoveryContactAllowed = true;
 }

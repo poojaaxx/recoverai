@@ -262,7 +262,18 @@ export function TransactionDetailPage() {
           <Row label="Successful payments">{detail.customerSuccessfulPaymentCount}</Row>
           <Row label="Failed payments">{detail.customerFailedPaymentCount}</Row>
           <Row label="Historical value">{currency.format(detail.customerTotalHistoricalValue)}</Row>
+          <Row label="Recovery contact">
+            <Badge tone={detail.customerRecoveryContactAllowed ? 'success' : 'danger'}>
+              {detail.customerRecoveryContactAllowed ? 'Allowed' : 'Opted out'}
+            </Badge>
+          </Row>
         </dl>
+        {!detail.customerRecoveryContactAllowed && (
+          <p className="mt-2 text-sm text-[var(--color-danger)]">
+            Recovery stopped — customer has opted out. The backend blocks every autonomous recovery action
+            (retry, payment link, reminder) for this customer regardless of AI recommendation or policy check.
+          </p>
+        )}
       </Section>
 
       <Section

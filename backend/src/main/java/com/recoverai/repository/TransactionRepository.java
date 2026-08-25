@@ -39,6 +39,19 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("SELECT t FROM Transaction t JOIN FETCH t.customer WHERE t.status IN :statuses")
     List<Transaction> findByStatusInWithCustomer(@Param("statuses") Collection<TransactionStatus> statuses);
 
+    /**
+     * Phase 14 - used by {@code RecoveryPolicyService.evaluate} so {@code
+     * checkConsent} can read {@code transaction.getCustomer().isRecoveryContactAllowed()}
+     * without a {@code LazyInitializationException}. Fetch-joining here
+     * (same idiom as {@link #findByStatusInWithCustomer}) materializes the
+     * customer as part of this one query, so the field is already
+     * populated in memory regardless of the caller's transaction/session
+     * boundary - unlike a lazy proxy, which only works while a Hibernate
+     * session is still open.
+     */
+    @Query("SELECT t FROM Transaction t JOIN FETCH t.customer WHERE t.id = :id")
+    Optional<Transaction> findByIdWithCustomer(@Param("id") UUID id);
+
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t")
     BigDecimal sumAllTransactionValue();
 

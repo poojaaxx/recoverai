@@ -121,6 +121,8 @@ export interface TransactionFullDetail {
   customerSuccessfulPaymentCount: number
   customerFailedPaymentCount: number
   customerTotalHistoricalValue: number
+  /** Phase 14 — false means the customer has opted out of recovery contact; the backend blocks every autonomous recovery action for them regardless of what the frontend shows. */
+  customerRecoveryContactAllowed: boolean
   risk: RevenueRiskDetail | null
   recoveryAttempts: RecoveryAttemptSummary[]
   auditTimeline: AuditEntry[]

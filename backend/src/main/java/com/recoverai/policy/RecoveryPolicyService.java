@@ -2,6 +2,7 @@ package com.recoverai.policy;
 
 import com.recoverai.config.RecoveryPolicyProperties;
 import com.recoverai.domain.AuditLog;
+import com.recoverai.domain.Customer;
 import com.recoverai.domain.PolicyDecision;
 import com.recoverai.domain.RecoveryAction;
 import com.recoverai.domain.RecoveryAttempt;
@@ -50,6 +51,7 @@ import java.util.UUID;
  * decision:
  * <ol>
  *   <li>{@code TRANSACTION_STATUS} - already-resolved/escalated/stopped transactions are handled first and unconditionally.</li>
+ *   <li>{@code CUSTOMER_CONSENT} - an opted-out customer blocks every autonomous action (Phase 14).</li>
  *   <li>{@code ACTION_COMPATIBILITY} - is this action valid for this transaction's state (and does the action itself, e.g. ESCALATE/STOP, dictate the outcome)?</li>
  *   <li>{@code RETRY_LIMIT} - only for RETRY_PAYMENT.</li>
  *   <li>{@code REPEATED_FAILURE} - total recovery actions of any kind already recorded for this transaction.</li>
@@ -74,7 +76,11 @@ public class RecoveryPolicyService {
 
     @Transactional
     public RecoveryPolicyDecisionResponse evaluate(UUID transactionId, RecoveryAction action) {
-        Transaction transaction = transactionRepository.findById(transactionId)
+        // findByIdWithCustomer (not plain findById): checkConsent below reads
+        // transaction.getCustomer().isRecoveryContactAllowed(), which a lazy
+        // proxy can only satisfy inside an open Hibernate session - fetch-joining
+        // here makes this safe regardless of the caller's transaction boundary.
+        Transaction transaction = transactionRepository.findByIdWithCustomer(transactionId)
                 .orElseThrow(() -> new TransactionNotFoundException(transactionId));
         List<RecoveryAttempt> attempts = recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(transactionId);
         Optional<RevenueRisk> risk = revenueRiskRepository.findByTransactionId(transactionId);
@@ -99,6 +105,9 @@ public class RecoveryPolicyService {
         List<PolicyCheckResponse> checks = new ArrayList<>();
 
         Optional<Evaluation> outcome = checkTransactionStatus(transaction, checks);
+        if (outcome.isPresent()) return outcome.get();
+
+        outcome = checkConsent(transaction, checks);
         if (outcome.isPresent()) return outcome.get();
 
         outcome = checkActionCompatibility(transaction, action, checks);
@@ -158,6 +167,33 @@ public class RecoveryPolicyService {
         checks.add(new PolicyCheckResponse("TRANSACTION_STATUS", true,
                 "Transaction status (%s) permits recovery evaluation.".formatted(status)));
         return Optional.empty();
+    }
+
+    /**
+     * Phase 14 - customer consent / do-not-contact compliance boundary.
+     * Evaluated right after transaction status (so an already-resolved
+     * transaction still reports that reason first) but before any
+     * action-specific logic, since an opt-out blocks every autonomous
+     * action equally - retry, payment link, or reminder. Decision is
+     * {@code BLOCK}, not {@code STOP}: {@code STOP} now persists a durable
+     * {@code STOPPED} transaction status (see {@code
+     * RecoveryExecutionService.applyLifecycleStatus}), which would survive
+     * the customer later opting back in; {@code BLOCK} causes no lifecycle
+     * transition, so consent is simply re-checked fresh on every
+     * evaluation. Server-side only - {@link Customer#isRecoveryContactAllowed()}
+     * is read from the persisted entity; no endpoint accepts a
+     * client-supplied override.
+     */
+    private Optional<Evaluation> checkConsent(Transaction transaction, List<PolicyCheckResponse> checks) {
+        Customer customer = transaction.getCustomer();
+        if (customer.isRecoveryContactAllowed()) {
+            checks.add(new PolicyCheckResponse("CUSTOMER_CONSENT", true,
+                    "Customer has not opted out of recovery contact."));
+            return Optional.empty();
+        }
+        String reason = "Customer has opted out of recovery contact; autonomous recovery is blocked for this transaction.";
+        checks.add(new PolicyCheckResponse("CUSTOMER_CONSENT", false, reason));
+        return Optional.of(new Evaluation(PolicyDecision.BLOCK, false, reason, checks));
     }
 
     /** Validates the proposed action against the (already-known-active) transaction state, and honors explicit terminal actions. */

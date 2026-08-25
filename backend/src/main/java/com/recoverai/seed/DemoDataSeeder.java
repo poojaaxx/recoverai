@@ -145,6 +145,13 @@ public class DemoDataSeeder {
                 .multiply(BigDecimal.valueOf(successCount))
                 .setScale(2, RoundingMode.HALF_UP);
 
+        // Phase 14: a deterministic minority of customers (index % 12 == 11,
+        // ~8%) have opted out of recovery contact, purely from the index -
+        // no extra rng draw, so the rest of the seeded dataset's shape is
+        // unaffected - giving the demo a real, reproducible opt-out example
+        // without relying on live user action.
+        boolean recoveryContactAllowed = index % 12 != 11;
+
         return Customer.builder()
                 .merchant(merchant)
                 .name("Demo Customer " + (index + 1))
@@ -153,6 +160,7 @@ public class DemoDataSeeder {
                 .successfulPaymentCount(successCount)
                 .failedPaymentCount(failCount)
                 .totalHistoricalValue(totalHistoricalValue)
+                .recoveryContactAllowed(recoveryContactAllowed)
                 .build();
     }
 
