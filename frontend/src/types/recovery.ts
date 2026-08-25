@@ -1,4 +1,4 @@
-import type { AuditTimelineEntry, PolicyDecision, RecoveryAction, RiskLevel } from './demo'
+import type { AuditTimelineEntry, PaymentConfirmationStatus, PolicyDecision, RecoveryAction, RiskLevel } from './demo'
 
 export interface HealthStatus {
   status: string
@@ -103,6 +103,12 @@ export interface ExecutionResult {
   executionNote: string | null
   auditEventId: string | null
   executedAt: string
+  /** Strictly separate from executionStatus - SUCCESS only means the provider call went through; CONFIRMED means a verified webhook proved the customer actually paid. */
+  paymentConfirmationStatus: PaymentConfirmationStatus
+  confirmedAmount: number | null
+  confirmedCurrency: string | null
+  providerPaymentId: string | null
+  confirmedAt: string | null
 }
 
 export interface RiskMetrics {
@@ -133,4 +139,18 @@ export interface BatchAgentEvaluationResult {
   averageConfidence: number
   providerFailures: number
   malformedOutputs: number
+}
+
+/** Response of `GET /api/recovery/metrics`. `confirmedRecoveredRevenue` is the only figure this app ever calls "recovered" — summed only from verified webhook confirmations. */
+export interface RecoveryMetrics {
+  totalRevenueAtRisk: number
+  potentiallyRecoverableRevenue: number
+  recoveryAttempts: number
+  successfulExecutionCount: number
+  confirmedRecoveryCount: number
+  confirmedRecoveredRevenue: number
+  recoveryRate: number
+  executionSuccessRate: number
+  confirmationRate: number
+  pendingConfirmationAmount: number
 }

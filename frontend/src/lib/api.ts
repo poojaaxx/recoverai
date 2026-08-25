@@ -8,6 +8,7 @@ import type {
   ExecutionResult,
   HealthStatus,
   PolicyDecisionResult,
+  RecoveryMetrics,
   RiskAnalysis,
   RiskMetrics,
   TransactionDetail,
@@ -112,6 +113,7 @@ export const api = {
     apiClient.post<PolicyDecisionResult>(`/api/recovery-policy/evaluate/${transactionId}`, { action }),
 
   executeRecovery: (transactionId: string) => apiClient.post<ExecutionResult>(`/api/recovery/${transactionId}/execute`),
+  recoveryMetrics: () => apiClient.get<RecoveryMetrics>('/api/recovery/metrics'),
 
   auditTimeline: (transactionId: string) => apiClient.get<AuditEntry[]>(`/api/audit/${transactionId}`),
 }

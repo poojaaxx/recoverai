@@ -214,6 +214,10 @@ export function ScenarioOperations({
   const amountRecovered = op.execution?.amountRecovered ?? scenario.amountRecovered
   const failureCode = op.execution?.failureCode ?? scenario.failureCode
   const duplicate = op.execution?.duplicate ?? scenario.duplicate
+  const executionStatus = op.execution?.executionStatus ?? scenario.executionStatus
+  const paymentConfirmationStatus = op.execution?.paymentConfirmationStatus ?? scenario.paymentConfirmationStatus ?? 'NOT_CONFIRMED'
+  const confirmedAmount = op.execution?.confirmedAmount ?? scenario.confirmedAmount
+  const providerPaymentId = op.execution?.providerPaymentId ?? scenario.providerPaymentId
 
   const auditEntries = op.audit ?? scenario.auditTimeline
 
@@ -424,21 +428,58 @@ export function ScenarioOperations({
           </ActionButton>
         </div>
         {executeAction.error && <InlineError error={executeAction.error} onRetry={handleExecute} />}
-        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
-          <Row label="Executed">{executed ? 'Yes' : 'No'}</Row>
-          <Row label="Provider">{provider ?? '—'}</Row>
-          <Row label="Simulated">{simulated ? 'Yes' : 'No'}</Row>
-          <Row label="Amount recovered">{currency.format(amountRecovered)}</Row>
-          <Row label="Failure code">{failureCode ?? '—'}</Row>
-          <Row label="Duplicate/replay">{duplicate ? 'Yes' : 'No'}</Row>
-        </dl>
-        <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] p-3 text-sm text-[var(--color-text-secondary)]">
-          {op.execution
-            ? op.execution.executed
-              ? 'The provider call ran — this confirms execution, not confirmed payment. amountRecovered stays ₹0.00 until a real, confirmed provider result exists.'
-              : (op.execution.executionNote ?? scenario.safetyExplanation)
-            : scenario.safetyExplanation}
+
+        {simulated && executed && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-warning)] px-2.5 py-0.5 text-xs font-semibold tracking-wide text-[var(--color-warning)]">
+            SIMULATION — NO REAL MONEY MOVED
+          </div>
+        )}
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">Execution</div>
+            <dl className="mt-1.5 space-y-1 text-sm">
+              <Row label="Status">{executed ? (executionStatus ?? 'SUCCESS') : 'Not executed'}</Row>
+              <Row label="Provider">{provider ?? '—'}</Row>
+              <Row label="Failure code">{failureCode ?? '—'}</Row>
+              <Row label="Duplicate/replay">{duplicate ? 'Yes' : 'No'}</Row>
+            </dl>
+          </div>
+          <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">Payment</div>
+            <dl className="mt-1.5 space-y-1 text-sm">
+              <Row label="Confirmation">
+                <Badge
+                  tone={
+                    paymentConfirmationStatus === 'CONFIRMED'
+                      ? 'success'
+                      : paymentConfirmationStatus === 'REJECTED'
+                        ? 'danger'
+                        : 'neutral'
+                  }
+                >
+                  {paymentConfirmationStatus.replace('_', ' ')}
+                </Badge>
+              </Row>
+              <Row label="Confirmed amount">{confirmedAmount != null ? currency.format(confirmedAmount) : '—'}</Row>
+              <Row label="Provider payment id">{providerPaymentId ?? '—'}</Row>
+            </dl>
+          </div>
         </div>
+
+        {paymentConfirmationStatus === 'CONFIRMED' ? (
+          <div className="mt-3 rounded-lg border border-[var(--color-success)] bg-[color-mix(in_srgb,var(--color-success)_10%,transparent)] p-3 text-sm text-[var(--color-success)]">
+            ✓ Confirmed Revenue Recovered — {currency.format(amountRecovered)}
+          </div>
+        ) : (
+          <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] p-3 text-sm text-[var(--color-text-secondary)]">
+            {op.execution
+              ? op.execution.executed
+                ? 'The provider call ran — this confirms execution, not confirmed payment. amountRecovered stays ₹0.00 until a real, verified provider webhook confirms it.'
+                : (op.execution.executionNote ?? scenario.safetyExplanation)
+              : scenario.safetyExplanation}
+          </div>
+        )}
       </section>
 
       {/* -------------------------------------------------- audit */}

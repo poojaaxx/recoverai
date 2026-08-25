@@ -5,7 +5,7 @@ import { useAsyncAction } from '../hooks/useAsyncAction'
 import { Badge, outcomeTone, policyTone, riskTone } from '../components/Badge'
 import { ScenarioOperations } from '../components/ScenarioOperations'
 import { outcomeLabel, type PolicyDecision, type RecoveryDemoScenario, type RecoveryDemoSummary } from '../types/demo'
-import type { BatchAgentEvaluationResult, BatchRiskAnalysisResult } from '../types/recovery'
+import type { BatchAgentEvaluationResult, BatchRiskAnalysisResult, RecoveryMetrics } from '../types/recovery'
 
 const currency = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -247,8 +247,39 @@ function EvaluateAllResult({ result }: { result: BatchAgentEvaluationResult }) {
   )
 }
 
+/** Portfolio-wide figures from GET /api/recovery/metrics — separate from the 5-scenario demo aggregate above, since this covers every transaction the batch actions have touched, not just the curated scenarios. */
+function PortfolioMetricsPanel({ metrics }: { metrics: RecoveryMetrics }) {
+  const stat = (label: string, value: string, tone?: 'success' | 'accent') => (
+    <div>
+      <div className="text-xs text-[var(--color-text-secondary)]">{label}</div>
+      <div
+        className={`mt-0.5 text-lg font-semibold ${tone === 'success' ? 'text-[var(--color-success)]' : tone === 'accent' ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-primary)]'}`}
+      >
+        {value}
+      </div>
+    </div>
+  )
+  return (
+    <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-1)] p-5">
+      <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Portfolio recovery metrics</h2>
+      <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+        Computed across every recovery attempt ever made, not just the 5 demo scenarios.
+      </p>
+      <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        {stat('Revenue at risk', currency.format(metrics.totalRevenueAtRisk))}
+        {stat('Potentially recoverable', currency.format(metrics.potentiallyRecoverableRevenue), 'accent')}
+        {stat('Recovery attempts', String(metrics.recoveryAttempts))}
+        {stat('Confirmed recoveries', String(metrics.confirmedRecoveryCount))}
+        {stat('Confirmed revenue recovered', currency.format(metrics.confirmedRecoveredRevenue), 'success')}
+        {stat('Pending confirmation', currency.format(metrics.pendingConfirmationAmount))}
+      </div>
+    </div>
+  )
+}
+
 export function RecoveryDemoPage() {
   const [summary, setSummary] = useState<RecoveryDemoSummary | null>(null)
+  const [metrics, setMetrics] = useState<RecoveryMetrics | null>(null)
   const [error, setError] = useState<ApiError | null>(null)
   const [loading, setLoading] = useState(false)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
@@ -287,6 +318,11 @@ export function RecoveryDemoPage() {
         setLoading(false)
         setHasLoadedOnce(true)
       })
+    // Portfolio metrics load independently — a failure here shouldn't block the scenario dashboard above.
+    api
+      .recoveryMetrics()
+      .then((res) => setMetrics(res.data))
+      .catch(() => undefined)
   }
 
   useEffect(load, [])
@@ -363,6 +399,8 @@ export function RecoveryDemoPage() {
               </div>
             </KpiCard>
           </div>
+
+          {metrics && <PortfolioMetricsPanel metrics={metrics} />}
 
           <div className="mt-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-1)] p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">

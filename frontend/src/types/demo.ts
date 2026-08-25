@@ -7,6 +7,7 @@ export type RecoveryAction =
   | 'ESCALATE'
   | 'STOP'
 export type RecoveryAttemptStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'BLOCKED' | 'ESCALATED'
+export type PaymentConfirmationStatus = 'NOT_CONFIRMED' | 'CONFIRMED' | 'REJECTED'
 
 export interface AuditTimelineEntry {
   id: string
@@ -50,6 +51,11 @@ export interface RecoveryDemoScenario {
   failureCode: string | null
   duplicate: boolean
 
+  paymentConfirmationStatus: PaymentConfirmationStatus | null
+  confirmedAmount: number | null
+  providerPaymentId: string | null
+  confirmedAt: string | null
+
   safetyExplanation: string
   auditTimeline: AuditTimelineEntry[]
 }
@@ -74,6 +80,6 @@ export interface RecoveryDemoSummary {
 export function outcomeLabel(scenario: RecoveryDemoScenario): 'SUCCESS' | 'FAILED' | 'NOT EXECUTED' | 'PENDING CONFIRMATION' {
   if (!scenario.executed) return 'NOT EXECUTED'
   if (scenario.executionStatus === 'FAILED') return 'FAILED'
-  if (scenario.executionStatus === 'SUCCESS' && scenario.amountRecovered > 0) return 'SUCCESS'
+  if (scenario.executionStatus === 'SUCCESS' && scenario.paymentConfirmationStatus === 'CONFIRMED') return 'SUCCESS'
   return 'PENDING CONFIRMATION'
 }
