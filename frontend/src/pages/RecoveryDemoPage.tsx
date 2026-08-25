@@ -345,13 +345,21 @@ export function RecoveryDemoPage() {
           <h1 className="mt-1 text-3xl font-semibold text-[var(--color-text-primary)]">RecoverAI — AI Revenue Recovery</h1>
           <p className="mt-1 text-[var(--color-text-secondary)]">Detect risk. Decide intervention. Recover safely.</p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-1)] px-4 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-2)] disabled:opacity-50"
-        >
-          {loading ? 'Refreshing…' : 'Refresh dashboard'}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/transactions"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-1)] px-4 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-2)]"
+          >
+            All transactions →
+          </Link>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-1)] px-4 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-2)] disabled:opacity-50"
+          >
+            {loading ? 'Refreshing…' : 'Refresh dashboard'}
+          </button>
+        </div>
       </div>
 
       {!hasLoadedOnce && loading && (
