@@ -1,22 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiClient } from '../lib/api'
-
-type HealthStatus = {
-  status: string
-  service: string
-  timestamp: string
-}
+import { api, toApiError, type ApiError } from '../lib/api'
+import type { HealthStatus } from '../types/recovery'
 
 export function Home() {
   const [health, setHealth] = useState<HealthStatus | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<ApiError | null>(null)
 
   useEffect(() => {
-    apiClient
-      .get<HealthStatus>('/api/health')
+    api
+      .health()
       .then((res) => setHealth(res.data))
-      .catch(() => setError('Backend unreachable'))
+      .catch((err) => setError(toApiError(err)))
   }, [])
 
   return (
@@ -34,7 +29,7 @@ export function Home() {
             Backend: {health.status} ({health.service})
           </span>
         )}
-        {error && <span className="text-[var(--color-danger)]">{error}</span>}
+        {error && <span className="text-[var(--color-danger)]">{error.message}</span>}
         {!health && !error && (
           <span className="text-[var(--color-text-secondary)]">
             Checking backend connection…
