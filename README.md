@@ -1,457 +1,144 @@
-# RecoverAI — AI Revenue Recovery Agent
+# RecoverAI
 
-**Built for the Razorpay Buildathon, Track 03.**
+An AI-assisted revenue recovery agent for failed payments, built for the Razorpay Buildathon, Track 03.
 
-> Detect revenue at risk → recommend the right intervention → enforce
-> deterministic safety → execute bounded recovery → verify payment →
-> measure recovered revenue.
+## The problem
 
-**Live app:** https://recoverai-bay.vercel.app/demo/recovery
-**API health check:** https://recoverai-xrky.onrender.com/api/health
+Every payment platform loses money to failed payments — an expired card, a bank declining a routine charge, a network blip, a customer who just didn't have funds that day. A lot of that revenue is actually recoverable if someone follows up the right way. Most systems either do nothing about it, or blindly retry every failed payment, which annoys customers and can trip fraud rules.
 
-Payments fail for reasons that have nothing to do with a customer's intent
-to pay — an expired card, a bank's risk rule, a temporary network blip.
-RecoverAI closes the loop from *detecting* that failure to *verifying* real
-recovery, without ever letting an AI model authorize or execute a financial
-action.
+Track 03 is about recovering that revenue intelligently instead of blindly. The interesting part isn't "can an AI suggest a retry" — it's building a system where an AI can be genuinely useful for judgment calls (why did this fail, what's worth trying) without ever being the thing that's allowed to move money.
 
-## Why this matters
+That's the whole premise behind RecoverAI: detect which failures are worth chasing, get an AI's read on what to do, but let a deterministic rules engine decide what's actually allowed to run.
 
-Failed payments, checkout abandonment, and subscription-payment failures
-are measurable revenue leakage — money a customer often would have paid,
-that the merchant never collects because nobody followed up correctly.
-Left to blunt automation, the fix is often worse than the problem:
+## What I built
 
-- Not every failed payment should be retried — some should be left alone.
-- High-value payments need stronger controls than a routine small retry.
-- Repeated failures need a stopping rule, or automation never stops.
-- Every recovery action needs to be auditable — "why did the system do
-  that?" has to have a real, reconstructable answer.
-- Running a recovery action is **not** the same as recovering money. A
-  system that conflates the two is misreporting its own results.
-
-RecoverAI is built around closing this loop honestly, with a hard boundary
-between the part that *thinks* (AI) and the part that *decides*
-(deterministic policy).
-
-## The complete loop
+The core loop looks like this:
 
 ```
-Transaction (payment failure)
-   |
-   v
-Revenue Risk Detection        deterministic: how much is at risk, how recoverable
-   |
-   v
-AI Recommendation             diagnoses the failure, proposes ONE action + confidence + rationale
-   |
-   v
-Deterministic Safety Policy   the only thing that can authorize a money-moving action
-   |
-   v
-ALLOW / BLOCK / ESCALATE / STOP
-   |
-   v
-Recovery Execution            calls the payment provider, only when ALLOW
-   |
-   v
-Payment Provider              Razorpay Test Mode, or an honest simulation adapter
-   |
-   v
-Verified Webhook Confirmation signature-checked, correlated, amount/currency re-verified
-   |
-   v
-Recovered Revenue Metrics     counts only money a verified confirmation actually proved
+Transaction → Risk scoring → AI recommendation → Policy check → Recovery execution → Payment confirmation → Measured revenue
 ```
 
-Every stage above is a real, tested code path, not a diagram drawn ahead of
-the implementation — see [Build quality](#build-quality--why-trust-it) below.
+A failed payment gets scored for how much revenue is at risk and how recoverable it looks. An AI agent looks at that context and recommends one action (retry, escalate, stop, whatever fits). That recommendation then goes through a separate, deterministic policy engine that actually decides whether it's allowed to run — checking retry limits, amount limits, duplicate attempts, and so on. Only if the policy says ALLOW does anything touch the payment provider. And even then, the system doesn't count the money as recovered until a signed webhook from the provider confirms the customer actually paid.
 
-## AI Judgment: what AI does vs. what AI cannot do
+The part I care most about here: the AI never executes a payment. It only ever recommends.
 
-**AI recommends. Policy authorizes. Execution executes. Webhook
-confirmation measures.**
+## How the AI is used
 
-| AI does | AI cannot do |
-|---|---|
-| Analyze transaction, customer, and risk context | Authorize a payment |
-| Recommend one recovery action | Bypass retry limits |
-| Provide a confidence score | Bypass amount limits |
-| Provide a concise, structured rationale | Override duplicate-action protection |
-| Estimate expected recovery value | Override a human-approval requirement |
-| | Override a STOP decision |
-| | Write a `RecoveryAttempt` record |
-| | Call `PaymentGateway` directly |
-| | Mark a transaction `RECOVERED` |
+The AI agent gets the transaction, the customer's payment history, and the risk score, and picks one recovery action along with a confidence score and a short rationale. That's it — it has no access to the payment gateway and can't write a recovery attempt to the database.
 
-The right-hand column isn't a policy promise, it's a structural fact: the
-AI recommendation service (`RecoveryAgentService`) has no dependency on
-`PaymentGateway` or the attempt-persistence layer, and every recommendation
-still passes through the same deterministic `RecoveryPolicyService` check
-whether it came from the AI or a test calling the policy engine directly.
-The AI also never exposes model chain-of-thought — only the structured
-action/confidence/rationale fields above.
+Every recommendation still has to pass through the policy engine before anything happens:
 
-A deterministic policy engine (`RecoveryPolicyService`) is the *only* thing
-that can approve a money-moving action — it checks retry limits, amount
-ceilings, duplicate-action windows, and prior escalations against the
-database, never against anything the AI or the frontend supplies. There is
-no frontend or API path that can mark a transaction recovered directly, and
-no endpoint — mapped or not — skips the authentication check below.
+- AI recommends `RETRY_PAYMENT` → policy checks the amount and retry history → says **ALLOW** → execution proceeds.
+- AI recommends `RETRY_PAYMENT` on a high-value transaction → policy says **ESCALATE** instead, because it's over the autonomous limit → nothing executes, a human has to look at it.
 
-## Why AI is used only there
+So the AI is useful for the "what should we try" judgment call, and the policy engine is the one thing that gets to say yes to actually spending a provider call on it. I kept it this way on purpose — authorization needs to be predictable and explainable, and an LLM call isn't a good fit for that.
 
-Deciding **which** recovery action fits a given failure benefits from
-weighing soft, contextual signals — failure category, customer history,
-amount, prior attempts — exactly the kind of judgment call an LLM is good
-at.
+## The recovery flow
 
-Deciding whether that action is **allowed to run** is a financial safety
-question, not a judgment call. It has to be predictable, reproducible, and
-auditable: the same inputs must always produce the same decision, and a
-human reviewing an incident needs to be able to reconstruct exactly why the
-system did what it did. That's why authorization stays in deterministic
-code, never a model call — this is a deliberate boundary, not a missing
-feature.
-
-## Authentication & authorization
-
-A stateless JWT login (`POST /api/auth/login`) protects every endpoint
-except `GET /api/health`, login itself, and the Razorpay webhook (which
-keeps its own independent HMAC signature check — see
-[AI Judgment](#ai-judgment-what-ai-does-vs-what-ai-cannot-do) above). Two roles: `OPERATOR` (read,
-analyze, get AI recommendations, evaluate policy) and `MERCHANT_ADMIN`
-(everything `OPERATOR` can, plus authorizing recovery execution). See
-[docs/API.md § Authentication](docs/API.md) for the exact request/response
-shapes and [docs/ARCHITECTURE.md § Authentication & Authorization](docs/ARCHITECTURE.md)
-for the design and its documented limitations (this is a clean
-application-level mechanism sized for a buildathon project, not a full
-identity platform).
-
-**Demo login** (buildathon judge/reviewer use — intentionally public,
-not a real secret; rotate via `DEMO_ADMIN_PASSWORD`/`DEMO_OPERATOR_PASSWORD`
-for any non-demo deployment):
-
-| Username | Password | Role |
-|---|---|---|
-| `merchant.admin` | `RecoverAI-Judge-Admin-2026` | `MERCHANT_ADMIN` |
-| `operator` | `RecoverAI-Judge-Operator-2026` | `OPERATOR` |
-
-## Build quality — why trust it
-
-- Money is always `BigDecimal` — never a floating-point type.
-- The payment provider sits behind an adapter (`PaymentGateway`) — mock by
-  default, Razorpay Test Mode opt-in — never called directly by AI or
-  policy code.
-- Idempotency is enforced at both the policy level (a time-window
-  duplicate-action check) and the database level (real unique
-  constraints).
-- Concurrency protection is proven with genuine multi-threaded tests, not
-  just sequential replay.
-- Webhook signature verification, correlation, and amount/currency
-  re-checking are all exercised against the real endpoint with real signed
-  fixtures — never a parallel unsigned bypass.
-- A full audit trail records every meaningful decision.
-- Rate limiting, security headers, centralized exception handling, and PII
-  masking are in place.
-- JWT authentication and role-based authorization protect every endpoint
-  except health, login, and the signature-gated webhook.
-- Deployed and live: Render (backend), Vercel (frontend), Neon
-  (PostgreSQL).
-- **291/291 automated backend tests passing** (`mvn test`, verified before
-  writing this), including a test that runs the real Flyway migrations
-  against a temporary, genuine PostgreSQL instance — not just H2's
-  compatibility mode.
-
-## Tech stack
-
-**Backend:** Java 17, Spring Boot, Maven, Spring Data JPA, PostgreSQL, Flyway
-**Frontend:** React, Vite, TypeScript, Tailwind CSS, React Router, Axios
-**AI:** provider-abstracted — a deterministic mock for dev/tests, Anthropic Claude for real inference
-**Payments:** behind a provider adapter — mock/simulation by default, Razorpay Test Mode opt-in
-**Deployed on:** Render (backend), Vercel (frontend), Neon (PostgreSQL)
-
-## Quick start
-
-**Prerequisites:** Java 17, Maven 3.9+, Node.js 20+, and either PostgreSQL 16 or Docker.
-
-```bash
-cp .env.example .env
-cd frontend && npm install
+```
+Payment fails
+   |
+   v
+Risk scoring (how much is at risk, how recoverable)
+   |
+   v
+AI recommendation (one action + confidence + reason)
+   |
+   v
+Policy check (ALLOW / BLOCK / ESCALATE / STOP)
+   |
+   v
+Execution — only if ALLOW
+   |
+   v
+Payment provider call (Razorpay Test Mode, or a mock)
+   |
+   v
+Webhook confirmation (signature verified)
+   |
+   v
+Revenue counted as recovered — only now
 ```
 
-**Backend** — if you have PostgreSQL/Docker:
-
-```bash
-docker compose up -d postgres   # from repo root
-cd backend
-mvn spring-boot:run
-```
-
-**Backend** — without Postgres/Docker, using the built-in H2 fallback:
-
-```bash
-# macOS / Linux / Git Bash
-cd backend
-SPRING_PROFILES_ACTIVE=local DEMO_SEED_ENABLED=true mvn spring-boot:run
-```
-
-```powershell
-# Windows PowerShell
-cd backend
-$env:SPRING_PROFILES_ACTIVE = "local"; $env:DEMO_SEED_ENABLED = "true"; mvn spring-boot:run
-```
-
-`DEMO_SEED_ENABLED=true` loads a deterministic demo dataset so the
-dashboard actually has transactions to show — otherwise you'd start from an
-empty database. It's safe to leave on for local dev.
-
-**Frontend:**
-
-```bash
-cd frontend
-npm run dev
-```
-
-Open `http://localhost:5173`. You'll land on a login page — sign in with
-the demo credentials above (locally, set `DEMO_SEED_ENABLED=true` and the
-`DEMO_ADMIN_PASSWORD`/`DEMO_OPERATOR_PASSWORD` env vars, or seed a user
-directly via `AppUserRepository` in a test/console). The `/demo/recovery`
-page is the interactive console — pick a scenario and try Analyze Risk,
-Get AI Recommendation, Evaluate Policy, and Execute Recovery (requires
-`MERCHANT_ADMIN`), or use "Run demo" to walk the whole pipeline for you.
-`/transactions` is the general-purpose dashboard — search, filter, sort,
-and inspect any transaction in the database, with the same real actions
-available on each one.
-
-## Testing
-
-```bash
-cd backend && mvn test        # full backend suite — no external services required
-cd frontend && npm run build  # type-checks and builds the frontend
-```
-
-The backend suite includes a test that spins up a real, temporary
-PostgreSQL instance to verify the Flyway migrations and entity mappings
-against actual Postgres, not just H2's compatibility mode.
-
-## Measuring real recovered revenue
-
-This is the part most systems get wrong, so it gets its own section.
-
-**Execution success ≠ payment confirmed ≠ revenue recovered.** These are
-three different facts, and RecoverAI never collapses them into one:
-
-- Executing a recovery action produces an *execution result* — a provider
-  call went through (e.g. a payment link was created). That's it.
-- `amountRecovered` stays `0` until a provider confirms the customer
-  actually paid.
-- A Razorpay webhook's signature is verified over the raw request body
-  before a single field of it is trusted.
-- The confirmation is correlated to the specific `RecoveryAttempt` that
-  created it — never by amount alone, never by a client-supplied id.
-- The confirmed amount and currency are independently re-verified against
-  what the attempt was actually authorized for.
-- Webhook processing is idempotent — a duplicated or replayed delivery can
-  never double-count revenue.
-- **Only** this verified webhook path can transition a transaction to
-  `RECOVERED` or contribute a non-zero figure to recovery metrics.
-
-This is deliberate: it makes it structurally impossible to report a
-fabricated recovered-revenue number, even by accident.
-
-**Honest disclosure:** the infrastructure for confirmed-recovery
-measurement is fully implemented and tested — signature verification,
-correlation, amount/currency checks, idempotency, and an end-to-end test
-that drives execution → a genuinely signed webhook → confirmation, over
-real HTTP (see [Testing](#testing)). But **this deployed environment has no
-real Razorpay Test Mode credentials configured**, so no live webhook has
-ever been received here. RecoverAI does not claim a real recovered-money
-figure — it reports `₹0.00` confirmed recovered revenue, honestly, because
-that is what has actually been confirmed. That claim only changes the day
-real Test Mode credentials and a live webhook are configured.
+Each stage is a real, separately-tested piece of the backend, not just a diagram — see the Build Quality section below.
 
 ## What happens when things go wrong
 
-Failure handling isn't an afterthought here — it's most of the design:
+This was most of the actual engineering work, honestly. A few examples:
 
-| Scenario | What happens |
-|---|---|
-| AI recommends RETRY, but the transaction already exhausted its retry budget | Policy returns **STOP** — no gateway call is made |
-| AI recommends RETRY, but the amount exceeds the autonomous recovery limit | Policy returns **ESCALATE** — human approval required, no gateway call |
-| Provider declines the payment | `RecoveryAttempt` is marked `FAILED`; the transaction is **not** marked recovered; an audit event is recorded |
-| Provider times out / is unavailable | A structured failure result — no automatic unsafe retry |
-| Duplicate execution request (same attempt) | Policy's duplicate-action check plus a real database unique constraint — at most one provider call |
-| Two concurrent execution requests for the same transaction | Proven under genuine thread concurrency: exactly one provider call, one `RecoveryAttempt`; the other request resolves to the same result |
-| Webhook delivered twice (replay) | Idempotent via a real database constraint — no double confirmation, no double-counted revenue |
-| Repeated failures on the same transaction | A stopping rule caps total recovery actions — automation does not retry forever |
+If a transaction already hit its retry limit, the policy returns STOP and nothing gets called — no matter what the AI suggests. If the amount is above the autonomous limit, it escalates for human approval instead of running automatically. If the provider itself declines or times out, that's recorded as a failed attempt, not a recovered one, and the transaction stays failed. Two execution requests for the same transaction firing at once (which I tested with actual concurrent threads) resolve to exactly one provider call, thanks to a database-level idempotency constraint — the second request just gets back the same result instead of double-charging. Webhook deliveries are idempotent the same way, so a replayed or duplicated webhook can't double-count revenue. And if the AI provider itself fails or returns something malformed, the system falls back to escalating rather than guessing.
 
-## Real vs. simulated
+None of this is exotic — it's mostly "don't trust anything twice, and fail toward the safe option."
 
-| Component | Current state |
-|---|---|
-| Backend | Production deployed (Render) |
-| PostgreSQL | Managed Neon PostgreSQL |
-| Frontend | Vercel |
-| Revenue risk engine | Real, deterministic implementation |
-| Policy engine | Real, deterministic implementation |
-| AI provider | Mock by default (deterministic, offline); a working Anthropic Claude integration exists, requires an API key to activate |
-| Razorpay | Simulation by default; real Test Mode integration exists in code, opt-in via env vars, not exercised against Razorpay's live API in this environment |
-| Payment confirmation | Real webhook implementation (signature, correlation, amount/currency, idempotency) — no real webhook received in this environment |
-| Recovery metrics | Real backend aggregates, computed only from confirmed recovery |
-| Demo dataset | Synthetic, deterministic |
-| Real recovered-money figure | Not claimed — reports `₹0.00` honestly, pending a real provider confirmation |
+## Measuring recovered revenue
 
-## Demo story
+This is the part I was most careful about, because it's easy to get wrong (or fake).
 
-Five named scenarios, each demonstrating a different corner of the safety
-design (`GET /api/demo/recovery`, or the `/demo/recovery` console):
+Execution success is not the same as payment success. A recovery action succeeding just means a provider call went through — e.g. a payment link got created. It does not mean the customer paid. The transaction only gets marked `RECOVERED`, and `amountRecovered` only becomes non-zero, after a Razorpay webhook arrives, its signature is verified, and the confirmed amount/currency are checked against what was actually authorized.
 
-1. **Easy recovery** — AI recommends a retry, the amount is well within
-   limits, policy **ALLOW**s it, and the bounded recovery path executes.
-   Shown as "pending confirmation," never as money recovered.
-2. **High-value transaction** — AI still recommends a retry, but the amount
-   exceeds the autonomous recovery limit, so policy overrides to
-   **ESCALATE**. This is the clearest demonstration of "AI recommends,
-   policy authorizes": the two disagree, and policy wins.
-3. **Repeated failure** — the transaction already exhausted its automated
-   retry budget; policy returns **STOP** again. Automation does not retry
-   forever.
-4. **Already recovered** — policy **BLOCK**s any further action; there's
-   nothing left to do, and the system correctly refuses to touch it again.
-5. **Already escalated** — awaiting manual review; policy **ESCALATE**s
-   again rather than silently retrying behind a human's back.
+I'm being upfront about where this currently stands: **the deployed environment doesn't have real Razorpay Test Mode credentials configured**, so it runs on the mock/simulation gateway. That means confirmed recovered revenue in this environment is genuinely ₹0.00 — always has been. The confirmation pipeline itself (signature verification, correlation, idempotency, the whole thing) is implemented and covered by tests that drive a real signed webhook through the real endpoint. It's just never had a real payment to confirm. I'd rather say that plainly than dress up a number that isn't real.
 
-No scenario in this demo claims money was recovered unless a verified
-webhook actually confirmed it — see
-[Measuring real recovered revenue](#measuring-real-recovered-revenue) above.
+## Demo
 
-## Key design decisions
+Live app: **https://recoverai-bay.vercel.app/demo/recovery**
 
-- AI recommendation is structurally separate from authorization.
-- Authorization is deterministic, not model-driven.
-- Every amount, currency, and action the policy or execution layer acts on
-  comes from trusted server/database state — never from the AI or the
-  frontend.
-- The frontend cannot choose an execution amount or action; it can only ask
-  the server to evaluate or execute against server-held state.
-- The payment provider sits behind an adapter, never called directly by AI
-  or policy code.
-- Idempotency exists at both the policy level and the database level.
-- Recovery is only "confirmed" through a verified provider webhook, never
-  through execution success alone.
-- Every meaningful decision is written to an audit trail.
-- A failed recovery attempt never silently becomes a successful one.
-- No fabricated recovered-revenue figure, ever.
+You'll be asked to log in first — use `merchant.admin` / `RecoverAI-Judge-Admin-2026` for full access (including executing a recovery), or `operator` / `RecoverAI-Judge-Operator-2026` for a read-only view.
 
-## Known limitations
+The `/demo/recovery` console walks through 5 named scenarios — an easy recovery that gets ALLOWed, a high-value transaction that gets ESCALATEd instead of auto-retried, a transaction that already hit its STOP limit, one that's already recovered, and one already escalated. Each button (Analyze Risk, Get AI Recommendation, Evaluate Policy, Execute Recovery) calls the real backend, nothing is precomputed. There's also a `/transactions` dashboard for browsing and filtering any transaction in the database, not just the 5 curated ones.
 
-- Revenue-risk weights and policy thresholds (retry limits, amount
-  ceilings, etc.) are illustrative, hand-picked defaults for this
-  prototype — not a statistically fitted model or a real merchant's risk
-  appetite.
-- Only INR is currently supported.
-- JWTs are stateless and not revocable before expiry (default 8 hours) —
-  there is no server-side session store or logout-everywhere mechanism.
-  Appropriate for this project's scope; a real deployment handling
-  sensitive data would want short-lived tokens plus a refresh flow.
-- Two webhook-rejection counters (invalid signature, malformed payload) in
-  `GET /api/observability/metrics` are in-memory and per-instance (reset on
-  restart) — the same documented simplification already used for rate
-  limiting, since those two failures happen before anything can be
-  persisted. Every other webhook/policy/provider count is a real database
-  aggregate.
+## Tech stack
 
-## Failure story: a real production incident
+**Backend:** Java 17, Spring Boot, Spring Data JPA, PostgreSQL (Neon), Flyway, Maven
+**Frontend:** React, TypeScript, Vite
+**AI:** deterministic mock provider by default; an Anthropic Claude integration exists and works if you give it an API key
+**Payments:** Razorpay adapter behind a `PaymentGateway` interface — mock by default, real Test Mode is an opt-in config flag
+**Deployment:** Render (backend), Vercel (frontend), Neon (PostgreSQL)
 
-Not everything about building this went smoothly, and that's worth saying
-out loud.
+## Build quality
 
-**What broke:** a Flyway migration (`V11`) was edited in place after it had
-already been applied to the production database. Flyway detected the
-resulting checksum mismatch and refused to run further migrations — every
-subsequent deploy failed.
+291 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
 
-**Why:** Flyway's safety model depends on an already-applied migration's
-file never changing; editing it broke that guarantee for every future
-deploy that checksums against the recorded value.
+## A failure I actually hit
 
-**How it was diagnosed:** Render's deploy logs showed the exact mismatch
-(`Applied to database: X -> Resolved locally: Y`). The live site stayed up
-throughout — Render keeps serving the last successful deploy when a new one
-fails its checks.
+At one point I edited a Flyway migration file after it had already been applied to the production database — you're not supposed to do that, and Flyway noticed immediately. Every deploy after that started failing with a checksum mismatch (the site itself stayed up, since Render just kept serving the last working build). I fixed it properly instead of hacking around it: added a new forward migration to carry the actual change, and used Flyway's own repair mechanism to fix the checksum bookkeeping without touching anything already applied. Deploys went back to normal after that. I'm leaving this in the README because it's a real thing that happened during a real deployment, not just the happy path.
 
-**How it was fixed:** a first attempt to byte-for-byte restore the original
-migration didn't resolve it, since the exact originally-applied bytes
-couldn't be reconstructed with certainty. The actual fix was Flyway's own
-supported mechanism — a one-time `flyway.repair()` call that recalculates
-the recorded checksums to match the current files, without touching any
-already-applied SQL. A new migration (`V12`) carried the intended change
-forward correctly, and the repair step was removed immediately after
-confirming the next deploy succeeded.
-
-**Verification:** the next deploy was watched live until health, the
-transaction dashboard, and the demo endpoint all confirmed correct
-behavior — not just "the build succeeded."
-
-## Project status
-
-- [x] Domain model, database, and synthetic demo dataset
-- [x] Deterministic revenue-risk scoring engine
-- [x] Deterministic recovery safety/policy engine
-- [x] AI recovery agent (recommend-only, policy-gated)
-- [x] Razorpay payment adapter (mock + real Test Mode support)
-- [x] End-to-end recovery execution pipeline, with idempotency
-- [x] Failure-recovery demo scenarios and dashboard
-- [x] Production deployment (Render + Vercel + Neon)
-- [x] Security/compliance hardening (rate limiting, security headers, PII masking, audit trail)
-- [x] Interactive recovery console — every action calls the real backend
-- [x] Payment confirmation via a verified, idempotent Razorpay webhook — the only path that can mark a transaction recovered
-- [x] General-purpose transaction dashboard (`/transactions`) — filter, search, sort, and inspect any transaction, not just the curated demo scenarios
-- [x] Authentication & role-based authorization (JWT, `MERCHANT_ADMIN`/`OPERATOR`) on every endpoint except health, login, and the signature-gated webhook
-- [x] Dashboard `recoveryAttemptStatus` filter matches the latest recovery attempt, not any historical one
-- [x] Production observability — policy/webhook/provider metrics, structured request-correlated logging
-- [x] Concurrency/load smoke tests — concurrent execution across many transactions, concurrent policy evaluation, concurrent dashboard reads, all measured and logged
-- [ ] A real Razorpay Test Mode payment actually confirmed end to end (needs live Test Mode credentials, not available in this environment — the intended lifecycle is fully verified with the deterministic mock provider instead, see docs/ARCHITECTURE.md)
-
-## Judge takeaway
-
-RecoverAI is not an LLM wrapped around a payment API.
-
-It's a bounded recovery system: AI provides a contextual recommendation, a
-deterministic policy engine controls financial authorization, a payment
-adapter performs only what policy authorized, a verified provider webhook
-determines whether money was actually recovered, and an audit trail
-records the complete decision path — end to end, with the failure modes
-handled as carefully as the happy path.
-
-## Repository layout
+## Project structure
 
 ```
 recoverai/
-├── backend/          Spring Boot API (Java 17, Maven)
+├── backend/    Spring Boot API
 │   └── src/main/java/com/recoverai/
-│       ├── risk/       deterministic revenue risk engine
-│       ├── policy/     deterministic safety/policy engine
-│       ├── agent/      AI recovery agent
-│       ├── payment/    payment gateway abstraction (mock + Razorpay)
-│       ├── execution/  end-to-end recovery execution pipeline
-│       ├── webhook/    payment confirmation: signature verification, matching, idempotency
-│       ├── demo/       read/aggregation layer for the demo dashboard
-│       └── seed/       synthetic dataset generator
-├── frontend/          Vite + React + TypeScript console
-├── docs/              Deep-dive architecture, API reference, demo script
-├── scripts/           Dev convenience scripts
-└── .env.example       Environment variable template
+│       ├── risk/       revenue risk scoring
+│       ├── policy/     deterministic authorization
+│       ├── agent/      AI recommendation
+│       ├── payment/    payment gateway adapter
+│       ├── execution/  ties risk + AI + policy + payment together
+│       └── webhook/    payment confirmation
+├── frontend/   React + TypeScript console
+├── docs/       deeper architecture/API/demo notes
+└── .env.example
 ```
 
-## Digging deeper
+## Running locally
 
-This README stays judge-facing and intentionally focused. For the full
-technical detail —
-engine formulas, every endpoint, request/response shapes, deployment
-configuration, and the complete list of safety guarantees — see:
+```bash
+cp .env.example .env
+cd backend && SPRING_PROFILES_ACTIVE=local DEMO_SEED_ENABLED=true mvn spring-boot:run
+```
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how each piece works and why
-- [docs/API.md](docs/API.md) — full endpoint reference
-- [docs/DEMO.md](docs/DEMO.md) — walkthrough script for the demo scenarios
+```bash
+cd frontend && npm install && npm run dev
+```
+
+That runs the backend against an in-memory H2 database with demo data seeded, no PostgreSQL setup required. See `.env.example` for every config option, including how to point it at real PostgreSQL or turn on the Anthropic/Razorpay integrations.
+
+## Live links
+
+- Frontend: https://recoverai-bay.vercel.app
+- Recovery console: https://recoverai-bay.vercel.app/demo/recovery
+- Backend health check: https://recoverai-xrky.onrender.com/api/health
+- Repository: https://github.com/poojaaxx/recoverai
+
+## Final takeaway
+
+The interesting part of RecoverAI isn't asking an LLM what to do about a failed payment — that's the easy part. It's closing the whole loop: detecting revenue that's actually worth chasing, getting a useful recommendation from AI, enforcing deterministic rules that decide what's actually allowed to run, executing only within those bounds, and only counting money as recovered once a real payment confirmation says so.
