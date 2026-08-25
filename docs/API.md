@@ -5,13 +5,20 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
 Phase 9 (production deployment), Phase 10 (audit, compliance & production
-hardening), Phase 11 (interactive recovery console), and Phase 12 (payment
-confirmation, webhook verification & measured revenue recovery) complete —
-the API described below is live at https://recoverai-xrky.onrender.com.
+hardening), Phase 11 (interactive recovery console), Phase 12 (payment
+confirmation, webhook verification & measured revenue recovery), and
+Phase 13 (general-purpose transaction dashboard) complete — the API
+described below is live at https://recoverai-xrky.onrender.com.
 Endpoints are documented here as they are implemented; see
 [README.md](../README.md) for overall phase progress and
 [README.md § Live deployment](../README.md) for
 the deployment record.
+
+Status update - Phase 13 evolved `GET /api/transactions` from a minimal
+status-filtered list into a full dashboard API (combinable filters,
+search, sort, pagination over every transaction) and added
+`GET /api/transactions/{id}/detail` — see below. No existing endpoint's
+URL or meaning changed; `GET /api/transactions/{id}` is unchanged.
 
 Status update - Phase 12 added two endpoints: `POST /api/webhooks/razorpay`
 (inbound payment confirmation) and `GET /api/recovery/metrics` (portfolio
@@ -62,20 +69,29 @@ Application-level liveness check (separate from Spring Boot Actuator's
 }
 ```
 
-### `GET /api/transactions`
+### `GET /api/transactions` — general-purpose transaction dashboard (Phase 13)
 
-Minimal, paginated transaction listing — added to prove the persistence
-layer works over HTTP, not a finished dashboard API (no filtering beyond
-status, no sorting options exposed yet).
+Filterable, searchable, sortable, paginated listing over **every**
+transaction in the database — not the 5 curated demo scenarios. See
+`com.recoverai.transaction.TransactionDashboardService`.
 
-**Query parameters**
+**Query parameters** (all optional; combinable)
 
-| Param | Required | Notes |
-|---|---|---|
-| `status` | No | One of `SUCCESS`, `FAILED`, `PENDING`, `ABANDONED`, `RECOVERED`, `ESCALATED`, `STOPPED` |
-| `page`, `size` | No | Standard Spring Data pagination; `size` defaults to 20 |
+| Param | Notes |
+|---|---|
+| `status` | `SUCCESS`, `FAILED`, `PENDING`, `ABANDONED`, `RECOVERED`, `ESCALATED`, `STOPPED` |
+| `riskLevel` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` — matches the transaction's current `RevenueRisk` row, if any |
+| `failureCategory` | e.g. `TEMPORARY_FAILURE`, `BANK_DECLINED`, ... (see `FailureCategory`) |
+| `paymentMethod` | `CARD`, `UPI`, `NETBANKING`, `WALLET`, `EMI` |
+| `minAmount`, `maxAmount` | Inclusive transaction-amount range |
+| `search` | Case-insensitive substring match on `externalTransactionId`, **or** an exact match if the value parses as a UUID (against the transaction's own id or its customer's id) |
+| `atRiskOnly` | `true` restricts to transactions with a positive `amountAtRisk` |
+| `recoveredOnly` | `true` restricts to `status=RECOVERED` |
+| `recoveryAttemptStatus` | Matches a transaction with **any** recovery attempt in this status (a deliberate simplification over "latest attempt status only") |
+| `sort` | `NEWEST` (default), `OLDEST`, `AMOUNT_DESC`, `RISK_SCORE_DESC`, `AMOUNT_AT_RISK_DESC`, `RECOVERY_PROBABILITY_DESC` |
+| `page`, `size` | Standard Spring Data pagination; `size` defaults to 20 |
 
-**Response `200 OK`** — a Spring Data `Page<TransactionSummaryResponse>`:
+**Response `200 OK`** — a Spring Data `Page<TransactionListItemResponse>`. Risk and recovery fields are `null` — not a fabricated `0` or guessed value — for a transaction nobody has analyzed/attempted recovery on yet:
 
 ```json
 {
@@ -83,14 +99,20 @@ status, no sorting options exposed yet).
     {
       "id": "b7e6...",
       "externalTransactionId": "demo-easy-recovery",
-      "customerId": "a1c2...",
-      "customerName": "Demo Customer 7",
       "amount": 2499.00,
       "currency": "INR",
       "status": "FAILED",
       "paymentMethod": "CARD",
+      "failureCode": "TEMPORARY_FAILURE",
       "attemptCount": 1,
-      "createdAt": "2026-08-22T10:15:00Z"
+      "createdAt": "2026-08-22T10:15:00Z",
+      "riskScore": 23.39,
+      "riskLevel": "LOW",
+      "recoveryProbability": 0.9324,
+      "amountAtRisk": 2499.00,
+      "latestRecoveryAction": "RETRY_PAYMENT",
+      "latestRecoveryStatus": "SUCCESS",
+      "latestRecoveryAt": "2026-08-24T20:46:46Z"
     }
   ],
   "totalElements": 500,
@@ -100,15 +122,45 @@ status, no sorting options exposed yet).
 
 ### `GET /api/transactions/{id}`
 
-**Response `200 OK`** — a `TransactionDetailResponse` (adds `merchantId`,
-`customerEmail`, `failureCode`, `failureReason`, `updatedAt` over the
-summary shape above). **Response `404 Not Found`** if no transaction with
-that ID exists.
+The minimal single-transaction projection (unchanged, Phase 2/10) — used by
+the interactive console's "Refresh transaction" action. **Response `200 OK`**
+— a `TransactionDetailResponse` (`merchantId`, `customerEmail` (masked,
+Phase 10), `failureCode`, `failureReason`, `updatedAt`, ...). **Response
+`404 Not Found`** if no transaction with that ID exists.
 
-**Phase 10:** `customerEmail` is partially masked (e.g.
-`j***e@example.com`) before it ever leaves the server — this endpoint has
-no authentication and nothing in this project's frontend currently reads
-the raw address. See [README.md § PII / data-minimization review](../README.md).
+### `GET /api/transactions/{id}/detail` — full dashboard detail view (Phase 13)
+
+One bundled fetch for the dashboard's transaction detail page: transaction,
+customer history, revenue risk (`null` if never analyzed), the full
+recovery attempt history (including each attempt's payment-confirmation
+state — see below), and the complete audit timeline. **Response `404 Not
+Found`** if no transaction with that ID exists.
+
+**Response `200 OK`**
+
+```json
+{
+  "transaction": { "id": "b7e6...", "externalTransactionId": "demo-easy-recovery", "...": "..." },
+  "customerSuccessfulPaymentCount": 7,
+  "customerFailedPaymentCount": 1,
+  "customerTotalHistoricalValue": 18450.00,
+  "risk": { "riskScore": 23.39, "riskLevel": "LOW", "...": "..." },
+  "recoveryAttempts": [
+    {
+      "id": "c1a2...", "action": "RETRY_PAYMENT", "attemptNumber": 1, "status": "SUCCESS",
+      "provider": "mock", "providerReference": "mock_b7e6...:RETRY_PAYMENT:1", "simulated": true,
+      "amount": 2499.00, "amountRecovered": 0.00,
+      "paymentConfirmationStatus": "NOT_CONFIRMED", "confirmedAmount": null, "providerPaymentId": null, "confirmedAt": null,
+      "executedAt": "2026-08-24T20:46:46Z"
+    }
+  ],
+  "auditTimeline": [ { "id": "...", "eventType": "RISK_DETECTED", "...": "..." } ]
+}
+```
+
+**Phase 10 data-minimization** still applies: `customerEmail` inside
+`transaction` is partially masked (e.g. `j***e@example.com`) before it ever
+leaves the server. See [README.md § PII / data-minimization review](../README.md).
 
 ### Revenue Risk Engine (Phase 3)
 

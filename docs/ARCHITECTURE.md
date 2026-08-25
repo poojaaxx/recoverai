@@ -5,14 +5,12 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
 Phase 9 (production deployment), Phase 10 (audit, compliance & production
-hardening), Phase 11 (interactive recovery console), and Phase 12 (payment
-confirmation, webhook verification & measured revenue recovery) complete —
-this architecture is deployed and live (Neon PostgreSQL, Render backend,
+hardening), Phase 11 (interactive recovery console), Phase 12 (payment
+confirmation, webhook verification & measured revenue recovery), and
+Phase 13 (general-purpose transaction dashboard) complete — this
+architecture is deployed and live (Neon PostgreSQL, Render backend,
 Vercel frontend; see
 [README.md § Live deployment](../README.md)).
-This document will be filled in further as later phases (a general-purpose
-transaction dashboard) land, so that it always accurately reflects what is
-actually implemented rather than the target design.
 
 ## Current state
 
@@ -684,13 +682,55 @@ actual signature-verification code path rather than adding a second,
 parallel path that would need its own reasoning about whether it could
 ever be reachable in production.
 
+## General Transaction Dashboard (Phase 13)
+
+The `/demo/recovery` page (Phase 8/11) is deliberately a curated,
+5-scenario walkthrough. This phase adds the general-purpose counterpart:
+`/transactions` and `/transactions/:id` work over **every** transaction in
+the database, using the same backend safety boundary and the same typed
+API client - no new risk/AI/policy/payment decision logic, no fabricated
+data.
+
+- **`com.recoverai.transaction.TransactionDashboardService`** - a pure
+  read/aggregation layer (same discipline as `RecoveryDemoService`).
+  `search(...)` builds one combinable, static JPQL query
+  (`TransactionRepository#search`) using the standard Spring Data
+  `(:param IS NULL OR ...)` idiom for every optional filter, left-joined
+  to `RevenueRisk` (ad hoc `ON` join, since a transaction may have no risk
+  row yet). Sorting is a fixed, server-controlled enum
+  (`TransactionSort`) mapped to explicit alias-qualified JPQL paths (`t.
+  createdAt`, `r.riskScore`, ...) rather than accepting a raw client
+  -supplied sort string. `getFullDetail(...)` bundles the transaction,
+  customer history, risk (nullable), full recovery-attempt history
+  (including each attempt's Phase 12 payment-confirmation state), and the
+  audit timeline in one read - the same bundling `RecoveryDemoScenarioResponse`
+  already does for the curated scenarios, generalized.
+- **No N+1 queries.** For a page of results, risk rows and the latest
+  recovery attempt per transaction are fetched with two additional
+  batched queries scoped to just that page's transaction ids (`
+  RevenueRiskRepository#findByTransactionIdIn`, `RecoveryAttemptRepository
+  #findByTransactionIdIn`), the same batching pattern `RevenueRiskService`
+  already uses for its own batch analysis.
+- **"Not analyzed" is a real, distinct state.** `riskScore`/`riskLevel`/
+  `recoveryProbability`/`amountAtRisk` are `null` - never `0` or a guessed
+  value - for a transaction nobody has run through `RevenueRiskService`
+  yet. The frontend renders this as "Not analyzed," not a fabricated score.
+- **Frontend actions are identical in kind to the demo console's** (Analyze
+  Risk, Get AI Recommendation, Evaluate Policy, Execute Recovery, Refresh
+  Transaction, Refresh Audit) - the same `api.*` calls, the same
+  `useAsyncAction` loading/error handling, the same rule that `ALLOW`/
+  `BLOCK`/`ESCALATE`/`STOP` is only ever read from a real backend
+  response, never decided client-side.
+
 ## Sections to be added in later phases
 
 - Observability / audit trail design (beyond the `AuditLog` entity itself)
-- A full dashboard (Phase 9) - the Phase 8 `/demo/recovery` page is a
-  curated 5-scenario walkthrough, not a general-purpose transaction browser
 - Refund / partial-refund / payment-failed webhook events - the
   `PaymentConfirmationStatus`/`WebhookEvent` model is deliberately shaped
   so these can be added without corrupting the confirmed-revenue metric
   (a new status and a few new event-type branches, not a redesign), but
   none are implemented yet
+- Dashboard filtering by a transaction's *latest* recovery-attempt status
+  specifically (today's `recoveryAttemptStatus` filter matches "has any
+  attempt in this status," a deliberate simplification - see
+  `TransactionRepository#search`'s javadoc)

@@ -122,7 +122,9 @@ npm run dev
 Open `http://localhost:5173`. The `/demo/recovery` page is the interactive
 console — pick a scenario and try Analyze Risk, Get AI Recommendation,
 Evaluate Policy, and Execute Recovery, or use "Run demo" to walk the whole
-pipeline for you.
+pipeline for you. `/transactions` is the general-purpose dashboard —
+search, filter, sort, and inspect any transaction in the database, with
+the same real actions available on each one.
 
 ## Testing
 
@@ -169,9 +171,9 @@ against actual Postgres, not just H2's compatibility mode.
   environment (no credentials available) — both fail closed to a safe
   fallback rather than break or bypass anything.
 - Only INR is currently supported.
-- There's no general-purpose "any transaction" dashboard yet — the
-  interactive console works over five curated demo scenarios plus
-  whole-portfolio batch actions.
+- The `recoveryAttemptStatus` dashboard filter matches "has any recovery
+  attempt in this status," not specifically the latest one — a documented
+  simplification, not a bug.
 
 ## Project status
 
@@ -186,7 +188,7 @@ against actual Postgres, not just H2's compatibility mode.
 - [x] Security/compliance hardening (rate limiting, security headers, PII masking, audit trail)
 - [x] Interactive recovery console — every action calls the real backend
 - [x] Payment confirmation via a verified, idempotent Razorpay webhook — the only path that can mark a transaction recovered
-- [ ] General-purpose transaction dashboard (beyond the curated demo scenarios)
+- [x] General-purpose transaction dashboard (`/transactions`) — filter, search, sort, and inspect any transaction, not just the curated demo scenarios
 - [ ] A real Razorpay Test Mode payment actually confirmed end to end (needs live Test Mode credentials, not available in this environment)
 
 ## Repository layout

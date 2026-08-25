@@ -65,7 +65,11 @@ cd frontend
 npm run dev
 ```
 
-Open `http://localhost:5173/demo/recovery`.
+Open `http://localhost:5173/demo/recovery`. From there, "All transactions →"
+links to `/transactions` — the general-purpose dashboard (Phase 13) over
+every transaction in the database, not just these 5 curated scenarios. See
+[docs/ARCHITECTURE.md § General Transaction Dashboard](ARCHITECTURE.md)
+and [docs/API.md](API.md) for its filters, search, sort, and detail view.
 
 ## What the demo shows
 
