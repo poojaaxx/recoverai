@@ -87,6 +87,31 @@ public class RecoveryAgentService {
     }
 
     /**
+     * Phase 14 - a read-only preview of what {@link #evaluate} would
+     * decide, without writing the {@code RECOVERY_AI_RECOMMENDATION} audit
+     * row (same {@code writeAudit=false} pattern {@link #evaluateAll}
+     * already uses for its own aggregate-only batch pass - see that
+     * method's javadoc for the audit-noise rationale). Used by {@code
+     * BatchRecoveryExecutionService} to decide, before ever calling {@link
+     * com.recoverai.execution.RecoveryExecutionService#execute}, whether a
+     * transaction is even ALLOW-eligible and how much it would add to a
+     * batch's aggregate execution amount - it never itself authorizes or
+     * performs execution, and {@code RecoveryPolicyService.evaluate}
+     * (called transitively) still writes/dedupes its own authoritative
+     * {@code RECOVERY_POLICY_EVALUATED} row exactly as any other caller.
+     * Execution always re-runs this full pipeline fresh via {@link #evaluate},
+     * so a preview can never go stale between "peek" and "act".
+     */
+    @Transactional
+    public RecoveryAgentEvaluationResponse evaluatePreview(UUID transactionId) {
+        Transaction transaction = transactionRepository.findById(transactionId)
+                .orElseThrow(() -> new TransactionNotFoundException(transactionId));
+
+        EvaluationResult result = evaluateTransaction(transaction, false);
+        return toResponse(result);
+    }
+
+    /**
      * Batch AI recommendations over every currently at-risk transaction,
      * with aggregated statistics only - no execution, no per-transaction
      * audit rows (see {@link #evaluateTransaction} javadoc for why).

@@ -96,4 +96,37 @@ class RecoveryMetricsServiceTest {
         assertThat(after.confirmedRecoveredRevenue()).isEqualByComparingTo(before.add(new BigDecimal("1234.56")));
         assertThat(after.confirmedRecoveryCount()).isGreaterThanOrEqualTo(1);
     }
+
+    @Test
+    void distinctCustomersProcessed_countsEachCustomerOnceRegardlessOfAttemptCount() {
+        long before = metricsService.getMetrics().distinctCustomersProcessed();
+
+        Merchant merchant = merchantRepository.save(Merchant.builder()
+                .name("Metrics Customers Test Merchant").email("metrics-cust-count-" + UUID.randomUUID() + "@example.com").build());
+        Customer customer = customerRepository.save(Customer.builder()
+                .merchant(merchant).name("Metrics Customers Test Customer")
+                .email("metrics-cust-count-cust-" + UUID.randomUUID() + "@example.com").build());
+        Transaction t1 = transactionRepository.save(Transaction.builder()
+                .externalTransactionId("metrics_dc_txn1_" + UUID.randomUUID())
+                .merchant(merchant).customer(customer).amount(new BigDecimal("100.00")).currency("INR")
+                .status(TransactionStatus.FAILED).paymentMethod(PaymentMethod.CARD)
+                .failureCode(FailureCategory.TEMPORARY_FAILURE.name()).attemptCount(1).build());
+        Transaction t2 = transactionRepository.save(Transaction.builder()
+                .externalTransactionId("metrics_dc_txn2_" + UUID.randomUUID())
+                .merchant(merchant).customer(customer).amount(new BigDecimal("200.00")).currency("INR")
+                .status(TransactionStatus.FAILED).paymentMethod(PaymentMethod.CARD)
+                .failureCode(FailureCategory.TEMPORARY_FAILURE.name()).attemptCount(1).build());
+        // Two attempts, across two different transactions, but the SAME customer.
+        recoveryAttemptRepository.save(RecoveryAttempt.builder()
+                .transaction(t1).action(RecoveryAction.RETRY_PAYMENT).status(RecoveryAttemptStatus.SUCCESS)
+                .attemptNumber(1).amount(t1.getAmount()).provider("mock")
+                .idempotencyKey(t1.getId() + ":RETRY_PAYMENT:1").executedAt(Instant.now()).build());
+        recoveryAttemptRepository.save(RecoveryAttempt.builder()
+                .transaction(t2).action(RecoveryAction.RETRY_PAYMENT).status(RecoveryAttemptStatus.SUCCESS)
+                .attemptNumber(1).amount(t2.getAmount()).provider("mock")
+                .idempotencyKey(t2.getId() + ":RETRY_PAYMENT:1").executedAt(Instant.now()).build());
+
+        long after = metricsService.getMetrics().distinctCustomersProcessed();
+        assertThat(after).isEqualTo(before + 1);
+    }
 }

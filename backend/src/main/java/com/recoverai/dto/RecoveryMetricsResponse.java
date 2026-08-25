@@ -25,6 +25,11 @@ import java.math.BigDecimal;
  * Floored at zero rather than allowed to go negative, since a transient
  * timing gap between a webhook confirming a payment and the next risk
  * re-analysis could otherwise produce a nonsensical negative "risk".
+ * <p>
+ * <b>{@code distinctCustomersProcessed}</b> (Phase 14) - the count of
+ * distinct customers with at least one {@code RecoveryAttempt}, i.e.
+ * customers the recovery system has actually acted on, not merely
+ * customers with an at-risk transaction.
  */
 public record RecoveryMetricsResponse(
         BigDecimal totalRevenueAtRisk,
@@ -40,6 +45,7 @@ public record RecoveryMetricsResponse(
         BigDecimal amountRemainingAtRisk,
         long transactionsRecovered,
         long transactionsEscalated,
-        long transactionsStopped
+        long transactionsStopped,
+        long distinctCustomersProcessed
 ) {
 }

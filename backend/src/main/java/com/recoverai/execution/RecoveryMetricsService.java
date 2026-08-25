@@ -63,7 +63,8 @@ public class RecoveryMetricsService {
                 remainingAtRisk,
                 transactionRepository.countByStatus(TransactionStatus.RECOVERED),
                 transactionRepository.countByStatus(TransactionStatus.ESCALATED),
-                transactionRepository.countByStatus(TransactionStatus.STOPPED)
+                transactionRepository.countByStatus(TransactionStatus.STOPPED),
+                recoveryAttemptRepository.countDistinctCustomersWithAttempts()
         );
     }
 

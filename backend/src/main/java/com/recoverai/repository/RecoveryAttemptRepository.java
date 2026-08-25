@@ -46,6 +46,10 @@ public interface RecoveryAttemptRepository extends JpaRepository<RecoveryAttempt
     @Query("SELECT COALESCE(SUM(ra.confirmedAmount), 0) FROM RecoveryAttempt ra WHERE ra.paymentConfirmationStatus = com.recoverai.domain.PaymentConfirmationStatus.CONFIRMED")
     BigDecimal sumConfirmedAmount();
 
+    /** Phase 14 metrics - distinct customers whose transactions have had at least one recovery attempt, i.e. customers the recovery system has actually processed (not merely "at risk"). */
+    @Query("SELECT COUNT(DISTINCT ra.transaction.customer.id) FROM RecoveryAttempt ra")
+    long countDistinctCustomersWithAttempts();
+
     /** Amount already sent to a provider (execution SUCCESS) but not yet proven paid by a webhook - the "money in flight" figure for {@code RecoveryMetricsResponse}. Restricted to real gateway calls ({@code provider IS NOT NULL}) so a recorded non-payment action (e.g. a reminder) never inflates this with its transaction's full amount. */
     @Query("""
             SELECT COALESCE(SUM(ra.amount), 0) FROM RecoveryAttempt ra
