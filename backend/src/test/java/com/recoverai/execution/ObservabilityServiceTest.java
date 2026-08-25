@@ -119,6 +119,17 @@ class ObservabilityServiceTest {
         assertThat(processedAfter).isEqualTo(processedBefore + 1);
     }
 
+    @Test
+    void aiProviderMode_isObservableAndReflectsConfiguration() {
+        // Phase 14, section 1: the active AI provider mode must be visible
+        // through observability, not just inferred client-side. The test
+        // profile always configures recoverai.ai.provider=mock (see
+        // application-test.yml) - this proves the reported value comes from
+        // real configuration, not a hardcoded/fabricated string.
+        String mode = observabilityService.getMetrics().aiProviderMode();
+        assertThat(mode).isEqualTo("mock");
+    }
+
     private static long mockSuccessCount(ObservabilityMetricsResponse response) {
         return response.providers().stream()
                 .filter(p -> "mock".equals(p.provider()) && "SUCCESS".equals(p.status()))

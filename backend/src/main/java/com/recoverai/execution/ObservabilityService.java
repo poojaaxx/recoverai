@@ -1,5 +1,6 @@
 package com.recoverai.execution;
 
+import com.recoverai.config.RecoveryAgentProperties;
 import com.recoverai.domain.WebhookProcessingStatus;
 import com.recoverai.dto.ObservabilityMetricsResponse;
 import com.recoverai.repository.AuditLogRepository;
@@ -29,15 +30,18 @@ public class ObservabilityService {
     private final WebhookEventRepository webhookEventRepository;
     private final RecoveryAttemptRepository recoveryAttemptRepository;
     private final PaymentConfirmationService paymentConfirmationService;
+    private final RecoveryAgentProperties recoveryAgentProperties;
 
     public ObservabilityService(AuditLogRepository auditLogRepository,
                                  WebhookEventRepository webhookEventRepository,
                                  RecoveryAttemptRepository recoveryAttemptRepository,
-                                 PaymentConfirmationService paymentConfirmationService) {
+                                 PaymentConfirmationService paymentConfirmationService,
+                                 RecoveryAgentProperties recoveryAgentProperties) {
         this.auditLogRepository = auditLogRepository;
         this.webhookEventRepository = webhookEventRepository;
         this.recoveryAttemptRepository = recoveryAttemptRepository;
         this.paymentConfirmationService = paymentConfirmationService;
+        this.recoveryAgentProperties = recoveryAgentProperties;
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +73,7 @@ public class ObservabilityService {
                         row.getProvider(), row.getStatus().name(), row.getTotal()))
                 .toList();
 
-        return new ObservabilityMetricsResponse(policyDecisions, webhooks, providers);
+        return new ObservabilityMetricsResponse(policyDecisions, webhooks, providers,
+                recoveryAgentProperties.getProvider());
     }
 }

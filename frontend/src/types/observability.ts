@@ -24,4 +24,6 @@ export interface ObservabilityMetrics {
   policyDecisions: PolicyDecisionCounts
   webhooks: WebhookCounts
   providers: ProviderCounts[]
+  /** Phase 14 — the actual configured `recoverai.ai.provider` value ("mock" or "anthropic"), read from configuration. Pass to `aiProviderLabel()` (types/recovery.ts) for the honest, judge-facing label. */
+  aiProviderMode: string
 }

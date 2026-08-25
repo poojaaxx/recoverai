@@ -11,11 +11,18 @@ import java.util.List;
  * a judge or operator would actually want to see. See
  * docs/ARCHITECTURE.md "Production Observability" for exactly where each
  * field comes from.
+ * <p>
+ * {@code aiProviderMode} (Phase 14) - the actual configured {@code
+ * recoverai.ai.provider} value ({@code "mock"} or {@code "anthropic"}),
+ * read directly from configuration, never inferred or guessed - so the
+ * frontend can honestly state which AI is active without relying on a
+ * per-recommendation field alone.
  */
 public record ObservabilityMetricsResponse(
         PolicyDecisionCounts policyDecisions,
         WebhookCounts webhooks,
-        List<ProviderCounts> providers
+        List<ProviderCounts> providers,
+        String aiProviderMode
 ) {
     /** From every {@code RECOVERY_POLICY_EVALUATED} audit row ever written - the one authoritative, deduplicated source of policy decisions. */
     public record PolicyDecisionCounts(long allow, long block, long escalate, long stop) {
