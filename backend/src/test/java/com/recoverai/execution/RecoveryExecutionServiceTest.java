@@ -202,6 +202,82 @@ class RecoveryExecutionServiceTest {
         assertThat(response.policyDecision().decision().name()).isEqualTo("STOP");
     }
 
+    // ---------------------------------------------------------------- P0.1: lifecycle status persistence
+
+    @Test
+    void policyEscalate_persistsTransactionAsEscalated_viaLivePipeline_zeroGatewayCalls() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("47500.00"), null);
+        CountingGateway gateway = new CountingGateway();
+
+        RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, gateway).execute(txn.getId());
+
+        assertThat(gateway.count.get()).isZero();
+        assertThat(response.policyDecision().decision().name()).isEqualTo("ESCALATE");
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.ESCALATED);
+    }
+
+    @Test
+    void policyStop_persistsTransactionAsStopped_viaLivePipeline_zeroGatewayCalls() {
+        Customer weak = customer(0, 8);
+        Transaction txn = transaction(weak, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
+        recoveryAttemptRepository.save(RecoveryAttempt.builder()
+                .transaction(txn).action(RecoveryAction.RETRY_PAYMENT).status(RecoveryAttemptStatus.FAILED)
+                .attemptNumber(1).amount(txn.getAmount()).executedAt(Instant.now()).build());
+        recoveryAttemptRepository.save(RecoveryAttempt.builder()
+                .transaction(txn).action(RecoveryAction.RETRY_PAYMENT).status(RecoveryAttemptStatus.FAILED)
+                .attemptNumber(2).amount(txn.getAmount()).executedAt(Instant.now()).build());
+        CountingGateway gateway = new CountingGateway();
+
+        RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, gateway).execute(txn.getId());
+
+        assertThat(gateway.count.get()).isZero();
+        assertThat(response.policyDecision().decision().name()).isEqualTo("STOP");
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.STOPPED);
+    }
+
+    @Test
+    void policyEscalate_reEvaluatingAnAlreadyEscalatedTransaction_isIdempotent() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("47500.00"), null);
+        RecoveryExecutionService service = executionService(ALWAYS_RETRIES, new CountingGateway());
+
+        service.execute(txn.getId());
+        Instant firstUpdatedAt = transactionRepository.findById(txn.getId()).orElseThrow().getUpdatedAt();
+        RecoveryExecutionResponse second = service.execute(txn.getId());
+
+        assertThat(second.policyDecision().decision().name()).isEqualTo("ESCALATE");
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.ESCALATED);
+        assertThat(reloaded.getUpdatedAt()).isEqualTo(firstUpdatedAt);
+    }
+
+    @Test
+    void policyBlock_neverChangesTransactionStatus() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.RECOVERED, new BigDecimal("1899.00"), null);
+
+        executionServiceAlwaysRetryingMock().execute(txn.getId());
+
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.RECOVERED);
+    }
+
+    @Test
+    void allow_executingSuccessfully_neverMarksTransactionRecovered() {
+        // P0.1's own scope check: confirming ALLOW's lifecycle behavior is unchanged by this phase -
+        // execution success alone must still never set RECOVERED (only PaymentConfirmationService can).
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
+
+        executionServiceAlwaysRetryingMock().execute(txn.getId());
+
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.FAILED);
+    }
+
     // ---------------------------------------------------------------- 5-8. RecoveryAttempt lifecycle
 
     @Test
@@ -245,8 +321,9 @@ class RecoveryExecutionServiceTest {
     }
 
     @Test
-    void nonPaymentAllowedAction_createsNoRecoveryAttempt_isNotExecuted() {
-        // PENDING -> mock recommends SEND_RECOVERY_REMINDER, which policy ALLOWs but is not gateway-executable.
+    void sendRecoveryReminder_isRecordedAsAnAuditableAttempt_neverCallsGateway_neverMarksRecovered() {
+        // PENDING -> mock recommends SEND_RECOVERY_REMINDER, which policy ALLOWs. P0.2: this is
+        // now a real, auditable, non-payment RecoveryAttempt - not a silent no-op.
         Customer c = customer(3, 1);
         Transaction txn = transactionRepository.save(Transaction.builder()
                 .externalTransactionId("exec_pending_" + UUID.randomUUID())
@@ -261,8 +338,41 @@ class RecoveryExecutionServiceTest {
 
         assertThat(gateway.count.get()).isZero();
         assertThat(response.executed()).isFalse();
-        assertThat(response.executionNote()).contains("not a payment-gateway action");
-        assertThat(recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId())).isEmpty();
+        assertThat(response.provider()).isNull();
+        assertThat(response.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(response.executionNote()).contains("no payment gateway was called");
+
+        List<RecoveryAttempt> attempts = recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId());
+        assertThat(attempts).hasSize(1);
+        assertThat(attempts.get(0).getAction()).isEqualTo(RecoveryAction.SEND_RECOVERY_REMINDER);
+        assertThat(attempts.get(0).getStatus()).isEqualTo(RecoveryAttemptStatus.SUCCESS);
+        assertThat(attempts.get(0).getProvider()).isNull();
+        assertThat(attempts.get(0).getAmountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.PENDING);
+    }
+
+    @Test
+    void sendRecoveryReminder_respectsDuplicateActionProtection_secondCallIsBlocked() {
+        // A recorded reminder now counts as a real RecoveryAttempt, so the existing
+        // DUPLICATE_ACTION policy check (24h window) applies to it exactly like a payment action.
+        Customer c = customer(3, 1);
+        Transaction txn = transactionRepository.save(Transaction.builder()
+                .externalTransactionId("exec_pending_" + UUID.randomUUID())
+                .merchant(merchant).customer(c).amount(new BigDecimal("1500.00")).currency("INR")
+                .status(TransactionStatus.PENDING).paymentMethod(PaymentMethod.CARD).attemptCount(1).build());
+        RecoveryExecutionService service = executionService(context -> new RecoveryRecommendation(
+                context.transaction().transactionId(), RecoveryAction.SEND_RECOVERY_REMINDER, new BigDecimal("0.6"),
+                "reminder", InterventionType.REENGAGE, BigDecimal.TEN, Urgency.LOW, "test", null), new MockPaymentGateway());
+
+        RecoveryExecutionResponse first = service.execute(txn.getId());
+        RecoveryExecutionResponse second = service.execute(txn.getId());
+
+        assertThat(first.policyDecision().decision().name()).isEqualTo("ALLOW");
+        assertThat(second.policyDecision().decision().name()).isEqualTo("BLOCK");
+        assertThat(second.executed()).isFalse();
+        assertThat(recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId())).hasSize(1);
     }
 
     // ---------------------------------------------------------------- 9-10. attempt numbering / idempotency

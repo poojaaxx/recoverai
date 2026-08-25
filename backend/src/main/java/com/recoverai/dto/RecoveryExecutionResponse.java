@@ -16,12 +16,17 @@ import java.util.UUID;
  * <p>
  * {@code executed=true} only when a real (mock or Razorpay) provider call
  * actually happened for this request. {@code executionStatus} mirrors the
- * persisted {@link RecoveryAttemptStatus} ({@code SUCCESS}/{@code FAILED})
- * and is {@code null} whenever nothing was executed (policy did not
- * {@code ALLOW}, or the authorized action was not a payment-gateway
- * action). {@code amountRecovered} is a confirmed-recovery figure only -
- * see {@code RecoveryExecutionService}'s javadoc for why it is {@code 0}
- * for every result this phase can currently produce.
+ * persisted {@link RecoveryAttemptStatus} and is non-null whenever a {@code
+ * RecoveryAttempt} row exists for this request - which includes {@code
+ * SEND_RECOVERY_REMINDER} (recorded, {@code executed=false} since no
+ * gateway was called, but {@code recoveryAttemptId} and {@code
+ * executionStatus} are still populated - see {@code executionNote} for what
+ * actually happened) alongside the payment-gateway actions ({@code
+ * SUCCESS}/{@code FAILED}). It is {@code null} only when nothing was
+ * recorded at all (policy did not {@code ALLOW}). {@code amountRecovered}
+ * is a confirmed-recovery figure only - see {@code
+ * RecoveryExecutionService}'s javadoc for why it is {@code 0} for every
+ * result this phase can currently produce.
  * <p>
  * {@code recommendation}/{@code policyDecision} are {@code null} only in
  * the rare case this response resolves a genuine concurrent duplicate

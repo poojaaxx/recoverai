@@ -91,6 +91,20 @@ public class RecoveryExecutionService {
     private static final Set<RecoveryAction> GATEWAY_ACTIONS =
             EnumSet.of(RecoveryAction.RETRY_PAYMENT, RecoveryAction.CREATE_PAYMENT_LINK);
 
+    /**
+     * Actions that are genuinely executable and auditable but never touch
+     * {@link PaymentGateway} - currently just {@code SEND_RECOVERY_REMINDER}.
+     * These still create a real {@link RecoveryAttempt} row (so they count
+     * toward retry/repeated-failure limits and duplicate-action protection
+     * exactly like a payment action does), but the row is created directly
+     * with {@code provider=null} and {@code amountRecovered=0} rather than
+     * routed through the gateway - there is no external notification system
+     * in this codebase to call, so this action's real effect is "recorded,
+     * auditable, and never confused with money moving."
+     */
+    private static final Set<RecoveryAction> RECORDABLE_NON_PAYMENT_ACTIONS =
+            EnumSet.of(RecoveryAction.SEND_RECOVERY_REMINDER);
+
     private final TransactionRepository transactionRepository;
     private final RecoveryAttemptRepository recoveryAttemptRepository;
     private final AuditLogRepository auditLogRepository;
@@ -151,13 +165,14 @@ public class RecoveryExecutionService {
         RecoveryAction action = agentResponse.finalAction();
 
         if (decision != PolicyDecision.ALLOW) {
+            applyLifecycleStatus(transaction, decision);
             writeLifecycleAudit(transaction, eventTypeFor(decision), decision, action, null, null,
                     "No execution: policy decision was %s.".formatted(decision));
             return notExecutedResponse(transaction, agentResponse, false, null);
         }
 
-        if (!GATEWAY_ACTIONS.contains(action)) {
-            String note = "%s is not a payment-gateway action; no provider execution was performed.".formatted(action);
+        if (!GATEWAY_ACTIONS.contains(action) && !RECORDABLE_NON_PAYMENT_ACTIONS.contains(action)) {
+            String note = "%s is not an executable recovery action; no action was performed.".formatted(action);
             writeLifecycleAudit(transaction, "RECOVERY_EXECUTION_NOT_APPLICABLE", decision, action, null, null, note);
             return notExecutedResponse(transaction, agentResponse, false, note);
         }
@@ -169,6 +184,10 @@ public class RecoveryExecutionService {
         Optional<RecoveryAttempt> existing = recoveryAttemptRepository.findByIdempotencyKey(idempotencyKey);
         if (existing.isPresent()) {
             return duplicateResponse(transaction, agentResponse, existing.get());
+        }
+
+        if (RECORDABLE_NON_PAYMENT_ACTIONS.contains(action)) {
+            return recordNonPaymentAction(transaction, agentResponse, decision, action, attemptNumber, idempotencyKey);
         }
 
         // Reserve the attempt before calling the provider - see class javadoc for why this,
@@ -217,6 +236,89 @@ public class RecoveryExecutionService {
                 transactionId, reserved.getId(), action, result.provider(), result.success(), result.simulated(), result.failureCode());
 
         return executedResponse(transaction, agentResponse, reserved, result, false, null);
+    }
+
+    /**
+     * Persists the durable lifecycle consequence of a non-ALLOW policy
+     * decision (P0.1) - without this, an ESCALATE/STOP decision only ever
+     * produced an audit-log row, leaving {@code Transaction.status} at
+     * {@code FAILED} forever, which meant portfolio metrics and any other
+     * code reading {@code Transaction.status} directly could never see that
+     * the live pipeline had actually escalated or stopped anything (only
+     * seed data ever set these two statuses). {@code BLOCK} intentionally
+     * causes no transition here: every BLOCK condition already corresponds
+     * to a transaction state that needs no further lifecycle change (already
+     * resolved, or nothing eligible to retry).
+     * <p>
+     * Idempotent by construction: re-evaluating an already-{@code ESCALATED}
+     * transaction re-derives the same {@code ESCALATE} decision (see {@code
+     * RecoveryPolicyService.checkTransactionStatus}), so this method is a
+     * no-op on repeat calls (guarded below to avoid a pointless write).
+     */
+    private void applyLifecycleStatus(Transaction transaction, PolicyDecision decision) {
+        TransactionStatus target = switch (decision) {
+            case ESCALATE -> TransactionStatus.ESCALATED;
+            case STOP -> TransactionStatus.STOPPED;
+            case ALLOW, BLOCK -> null;
+        };
+        if (target != null && transaction.getStatus() != target) {
+            transaction.setStatus(target);
+            transaction.setUpdatedAt(Instant.now());
+            transactionRepository.save(transaction);
+        }
+    }
+
+    /**
+     * {@code SEND_RECOVERY_REMINDER} (P0.2) - the only currently-defined
+     * non-payment recovery action. This still creates a real, persisted
+     * {@link RecoveryAttempt} (so it counts toward retry/repeated-failure
+     * limits and duplicate-action protection like any other action, and is
+     * genuinely auditable) but never calls {@link PaymentGateway}: {@code
+     * provider} stays {@code null}, {@code amountRecovered} stays {@code 0},
+     * and the transaction is never marked {@link TransactionStatus#RECOVERED}
+     * from this path. There is no notification/email/SMS provider in this
+     * codebase to actually call - see the class-level {@code
+     * RECORDABLE_NON_PAYMENT_ACTIONS} javadoc.
+     */
+    private RecoveryExecutionResponse recordNonPaymentAction(Transaction transaction,
+                                                               RecoveryAgentEvaluationResponse agentResponse,
+                                                               PolicyDecision decision, RecoveryAction action,
+                                                               int attemptNumber, String idempotencyKey) {
+        RecoveryAttempt recorded = recoveryAttemptRepository.saveAndFlush(RecoveryAttempt.builder()
+                .transaction(transaction)
+                .action(action)
+                .status(RecoveryAttemptStatus.SUCCESS)
+                .attemptNumber(attemptNumber)
+                .idempotencyKey(idempotencyKey)
+                .amount(transaction.getAmount())
+                .amountRecovered(zero())
+                .reason("Recovery execution authorized by policy: ALLOW.")
+                .result("Recovery reminder recorded; no payment gateway was called and no money was moved.")
+                .executedAt(Instant.now())
+                .build());
+
+        writeLifecycleAudit(transaction, "RECOVERY_EXECUTION_COMPLETED", decision, action, recorded.getId(), null,
+                "Recovery reminder recorded; no payment gateway was called and no money was moved.");
+
+        log.info("Recovery execution for transaction {}: attempt={} action={} recorded (no gateway call).",
+                transaction.getId(), recorded.getId(), action);
+
+        return recordedResponse(transaction, agentResponse, recorded);
+    }
+
+    private RecoveryExecutionResponse recordedResponse(Transaction transaction,
+                                                         RecoveryAgentEvaluationResponse agentResponse,
+                                                         RecoveryAttempt attempt) {
+        return new RecoveryExecutionResponse(
+                transaction.getId(), transaction.getExternalTransactionId(),
+                agentResponse.aiRecommendation(), agentResponse.policyDecision(),
+                agentResponse.requiresHumanApproval(), false, attempt.getId(), attempt.getAction(),
+                null, null, attempt.getStatus(), attempt.getAmount(), zero(), false,
+                null, null, false,
+                "Recovery reminder recorded; no payment gateway was called and no money was moved.",
+                agentResponse.auditEventId(), Instant.now(),
+                confirmationStatus(attempt), attempt.getConfirmedAmount(), attempt.getConfirmedCurrency(),
+                attempt.getProviderPaymentId(), attempt.getConfirmedAt());
     }
 
     /** Runs in a brand-new transaction (via {@link TransactionTemplate}) so the winning attempt's just-committed row is visible. */
