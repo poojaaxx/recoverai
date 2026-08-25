@@ -1,47 +1,71 @@
-# RecoverAI
+# RecoverAI — AI Revenue Recovery Agent
 
-**AI Revenue Recovery Agent** — built for the Razorpay Buildathon, Track 03.
+**Built for the Razorpay Buildathon, Track 03.**
 
-> Detect revenue at risk. Decide the right intervention. Recover it safely.
-
-Payments fail for reasons that have nothing to do with a customer's intent
-to pay — an expired card, a bank's risk rule, a temporary network blip.
-Merchants leave this revenue on the table because reacting to every failed
-payment individually is expensive, and blunt "retry everything" automation
-annoys customers and trips fraud rules.
-
-RecoverAI watches a merchant's transaction stream, scores which failed
-payments are worth chasing, asks an AI agent to diagnose *why* a payment
-failed and recommend one action, checks that action against a deterministic
-safety policy, and — only if authorized — executes it. Every decision is
-logged, so the result is a system you can actually audit, not a demo
-gimmick.
+> Detect revenue at risk → recommend the right intervention → enforce
+> deterministic safety → execute bounded recovery → verify payment →
+> measure recovered revenue.
 
 **Live app:** https://recoverai-bay.vercel.app/demo/recovery
 **API health check:** https://recoverai-xrky.onrender.com/api/health
 
-## How it works
+Payments fail for reasons that have nothing to do with a customer's intent
+to pay — an expired card, a bank's risk rule, a temporary network blip.
+RecoverAI closes the loop from *detecting* that failure to *verifying* real
+recovery, without ever letting an AI model authorize or execute a financial
+action.
+
+## Why this matters
+
+Failed payments, checkout abandonment, and subscription-payment failures
+are measurable revenue leakage — money a customer often would have paid,
+that the merchant never collects because nobody followed up correctly.
+Left to blunt automation, the fix is often worse than the problem:
+
+- Not every failed payment should be retried — some should be left alone.
+- High-value payments need stronger controls than a routine small retry.
+- Repeated failures need a stopping rule, or automation never stops.
+- Every recovery action needs to be auditable — "why did the system do
+  that?" has to have a real, reconstructable answer.
+- Running a recovery action is **not** the same as recovering money. A
+  system that conflates the two is misreporting its own results.
+
+RecoverAI is built around closing this loop honestly, with a hard boundary
+between the part that *thinks* (AI) and the part that *decides*
+(deterministic policy).
+
+## The complete loop
 
 ```
-Transaction data
-   -> Risk scoring (deterministic)
-   -> AI diagnosis + recommendation
-   -> Safety policy check (deterministic — the actual gatekeeper)
-   -> Recovery action execution (Razorpay Test Mode, or a simulation adapter)
-   -> Provider webhook confirms the payment (signature-verified, idempotent)
-   -> Audit trail + metrics
+Transaction (payment failure)
+   |
+   v
+Revenue Risk Detection        deterministic: how much is at risk, how recoverable
+   |
+   v
+AI Recommendation             diagnoses the failure, proposes ONE action + confidence + rationale
+   |
+   v
+Deterministic Safety Policy   the only thing that can authorize a money-moving action
+   |
+   v
+ALLOW / BLOCK / ESCALATE / STOP
+   |
+   v
+Recovery Execution            calls the payment provider, only when ALLOW
+   |
+   v
+Payment Provider              Razorpay Test Mode, or an honest simulation adapter
+   |
+   v
+Verified Webhook Confirmation signature-checked, correlated, amount/currency re-verified
+   |
+   v
+Recovered Revenue Metrics     counts only money a verified confirmation actually proved
 ```
 
-The AI only ever *recommends*. It has no access to payment APIs. A separate,
-deterministic policy engine is the one thing that decides whether an action
-is actually allowed to run — see [Safety](#safety) below.
-
-**Execution success is not the same thing as confirmed recovery.** Running
-a payment action means a provider call went through (e.g. a payment link was
-created) — it does not mean the customer paid. Only a verified, signature
--checked webhook from the provider can confirm that, and only that
-confirmation ever marks a transaction "recovered" or reports non-zero
-recovered revenue.
+Every stage above is a real, tested code path, not a diagram drawn ahead of
+the implementation — see [Build quality](#build-quality--why-trust-it) below.
 
 ## Safety, in plain terms
 
