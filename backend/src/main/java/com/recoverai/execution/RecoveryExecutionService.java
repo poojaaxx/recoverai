@@ -321,6 +321,65 @@ public class RecoveryExecutionService {
                 attempt.getProviderPaymentId(), attempt.getConfirmedAt());
     }
 
+    /**
+     * P1.1 - the human-review side of {@code ESCALATE}. A {@code
+     * MERCHANT_ADMIN} approving an escalated transaction never itself
+     * authorizes execution: it only lifts the terminal {@code ESCALATED}
+     * status back to {@code FAILED} (so {@code RecoveryPolicyService}'s
+     * {@code checkTransactionStatus} no longer short-circuits straight back
+     * to {@code ESCALATE}) and then calls {@link #execute} - the exact same
+     * method every other execution path uses, re-running the AI
+     * recommendation and the <b>entire</b> policy check chain fresh
+     * (retry limit, repeated-failure cap, amount limit, duplicate-action,
+     * cooldown, risk flags - none of them skipped). If the transaction is
+     * still not authorized (e.g. still over the amount limit), the fresh
+     * evaluation escalates or blocks it again and nothing executes - an
+     * approval can never force execution past a safety check.
+     */
+    public RecoveryExecutionResponse approveEscalation(UUID transactionId, String approvedBy) {
+        String actor = approvedBy == null || approvedBy.isBlank() ? "MERCHANT_ADMIN" : approvedBy;
+        transactionTemplate.executeWithoutResult(status -> {
+            Transaction transaction = transactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new TransactionNotFoundException(transactionId));
+            if (transaction.getStatus() != TransactionStatus.ESCALATED) {
+                throw new EscalationNotPendingException(transactionId, transaction.getStatus());
+            }
+            transaction.setStatus(TransactionStatus.FAILED);
+            transaction.setUpdatedAt(Instant.now());
+            transactionRepository.save(transaction);
+            writeApprovalAudit(transaction, "RECOVERY_ESCALATION_APPROVED", actor,
+                    "Escalation approved by %s; re-evaluating through the full safety pipeline before anything executes."
+                            .formatted(actor));
+        });
+        return execute(transactionId);
+    }
+
+    /** The transaction stays ESCALATED (nothing to re-evaluate) - this only records that a human looked at it and declined, for audit traceability. Idempotent: rejecting an already-rejected-but-still-escalated transaction just records another rejection event. */
+    public void rejectEscalation(UUID transactionId, String rejectedBy, String reason) {
+        String actor = rejectedBy == null || rejectedBy.isBlank() ? "MERCHANT_ADMIN" : rejectedBy;
+        transactionTemplate.executeWithoutResult(status -> {
+            Transaction transaction = transactionRepository.findById(transactionId)
+                    .orElseThrow(() -> new TransactionNotFoundException(transactionId));
+            if (transaction.getStatus() != TransactionStatus.ESCALATED) {
+                throw new EscalationNotPendingException(transactionId, transaction.getStatus());
+            }
+            String note = (reason == null || reason.isBlank())
+                    ? "Escalation rejected by %s.".formatted(actor)
+                    : "Escalation rejected by %s: %s".formatted(actor, reason);
+            writeApprovalAudit(transaction, "RECOVERY_ESCALATION_REJECTED", actor, note);
+        });
+    }
+
+    private void writeApprovalAudit(Transaction transaction, String eventType, String actor, String reason) {
+        auditLogRepository.save(AuditLog.builder()
+                .transaction(transaction)
+                .eventType(eventType)
+                .actor(actor)
+                .reason(reason)
+                .timestamp(Instant.now())
+                .build());
+    }
+
     /** Runs in a brand-new transaction (via {@link TransactionTemplate}) so the winning attempt's just-committed row is visible. */
     private RecoveryExecutionResponse resolveDuplicate(UUID transactionId, String idempotencyKey) {
         Transaction transaction = transactionRepository.findById(transactionId)

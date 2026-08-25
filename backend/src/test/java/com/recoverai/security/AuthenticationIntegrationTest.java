@@ -188,6 +188,34 @@ class AuthenticationIntegrationTest {
     }
 
     @Test
+    void approveEndpoint_requiresAuthentication() throws Exception {
+        Transaction transaction = seedTransaction();
+
+        mockMvc.perform(post("/api/recovery/{id}/approve", transaction.getId()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void approveEndpoint_operatorRole_isForbidden() throws Exception {
+        Transaction transaction = seedTransaction();
+        String token = login(OPERATOR_USERNAME, OPERATOR_PASSWORD);
+
+        mockMvc.perform(post("/api/recovery/{id}/approve", transaction.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void rejectEndpoint_operatorRole_isForbidden() throws Exception {
+        Transaction transaction = seedTransaction();
+        String token = login(OPERATOR_USERNAME, OPERATOR_PASSWORD);
+
+        mockMvc.perform(post("/api/recovery/{id}/reject", transaction.getId())
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void confirmTestPaymentEndpoint_requiresAuthentication() throws Exception {
         Transaction transaction = seedTransaction();
 

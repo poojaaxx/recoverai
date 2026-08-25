@@ -4,6 +4,7 @@ import com.recoverai.agent.AIRecoveryProvider;
 import com.recoverai.agent.RecoveryAgentService;
 import com.recoverai.agent.RecoveryRecommendation;
 import com.recoverai.config.RecoveryPolicyProperties;
+import com.recoverai.domain.AuditLog;
 import com.recoverai.domain.Customer;
 import com.recoverai.domain.FailureCategory;
 import com.recoverai.domain.InterventionType;
@@ -276,6 +277,81 @@ class RecoveryExecutionServiceTest {
 
         Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
         assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.FAILED);
+    }
+
+    // ---------------------------------------------------------------- P1.1: escalation approval workflow
+
+    @Test
+    void approveEscalation_stillOverLimit_reEscalatesAndDoesNotExecute() {
+        // Transaction is ESCALATED (amount over the autonomous limit). Approving re-runs the FULL
+        // pipeline fresh - since the amount is still over the limit, it escalates again and nothing
+        // executes. An approval must never itself force execution past a safety check.
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.ESCALATED, new BigDecimal("47500.00"), null);
+        RecoveryExecutionService service = executionService(ALWAYS_RETRIES, new CountingGateway());
+
+        RecoveryExecutionResponse response = service.approveEscalation(txn.getId(), "admin@example.com");
+
+        assertThat(response.executed()).isFalse();
+        assertThat(response.policyDecision().decision().name()).isEqualTo("ESCALATE");
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.ESCALATED);
+
+        List<AuditLog> auditRows = auditLogRepository.findByTransactionIdOrderByTimestampAsc(txn.getId());
+        assertThat(auditRows).extracting(AuditLog::getEventType).contains("RECOVERY_ESCALATION_APPROVED");
+        assertThat(auditRows.stream().filter(a -> a.getEventType().equals("RECOVERY_ESCALATION_APPROVED")).findFirst()
+                .orElseThrow().getReason()).contains("admin@example.com");
+    }
+
+    @Test
+    void approveEscalation_nowWithinLimits_executesThroughTheFreshPolicyCheck() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.ESCALATED, new BigDecimal("2499.00"), null);
+        CountingGateway gateway = new CountingGateway();
+        RecoveryExecutionService service = executionService(ALWAYS_RETRIES, gateway);
+
+        RecoveryExecutionResponse response = service.approveEscalation(txn.getId(), "admin@example.com");
+
+        assertThat(response.executed()).isTrue();
+        assertThat(gateway.count.get()).isEqualTo(1);
+        assertThat(response.policyDecision().decision().name()).isEqualTo("ALLOW");
+    }
+
+    @Test
+    void approveEscalation_transactionNotEscalated_throws() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
+        RecoveryExecutionService service = executionServiceAlwaysRetryingMock();
+
+        assertThatThrownBy(() -> service.approveEscalation(txn.getId(), "admin@example.com"))
+                .isInstanceOf(EscalationNotPendingException.class);
+    }
+
+    @Test
+    void rejectEscalation_recordsAuditEvent_transactionStaysEscalated() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.ESCALATED, new BigDecimal("47500.00"), null);
+        RecoveryExecutionService service = executionServiceAlwaysRetryingMock();
+
+        service.rejectEscalation(txn.getId(), "admin@example.com", "Customer disputed the charge.");
+
+        Transaction reloaded = transactionRepository.findById(txn.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransactionStatus.ESCALATED);
+        List<AuditLog> auditRows = auditLogRepository.findByTransactionIdOrderByTimestampAsc(txn.getId());
+        assertThat(auditRows).anySatisfy(a -> {
+            assertThat(a.getEventType()).isEqualTo("RECOVERY_ESCALATION_REJECTED");
+            assertThat(a.getReason()).contains("admin@example.com").contains("Customer disputed the charge.");
+        });
+    }
+
+    @Test
+    void rejectEscalation_transactionNotEscalated_throws() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
+        RecoveryExecutionService service = executionServiceAlwaysRetryingMock();
+
+        assertThatThrownBy(() -> service.rejectEscalation(txn.getId(), "admin@example.com", null))
+                .isInstanceOf(EscalationNotPendingException.class);
     }
 
     // ---------------------------------------------------------------- 5-8. RecoveryAttempt lifecycle

@@ -39,14 +39,14 @@ import java.util.List;
  * caller is Razorpay's servers, not a logged-in user.
  * <p>
  * Everything else under {@code /api/**} requires a valid bearer token.
- * {@code POST /api/recovery/{id}/execute} additionally requires the
- * {@code MERCHANT_ADMIN} role - the endpoint that can cause a real (or
- * simulated) payment-gateway call - as does {@code POST
- * /api/demo/recovery/confirm-test-payment/{id}} (the judge-safe signed-
- * webhook demo path, see {@code DemoConfirmationService}), since both are
- * write actions with a real effect on transaction/attempt state. Every
- * read/analyze/recommend endpoint is available to both {@code
- * MERCHANT_ADMIN} and {@code OPERATOR}.
+ * {@code POST /api/recovery/{id}/execute}, {@code .../approve}, {@code
+ * .../reject}, and {@code POST /api/demo/recovery/confirm-test-payment/{id}}
+ * all additionally require the {@code MERCHANT_ADMIN} role - every one is a
+ * write action with a real effect on transaction/attempt state (execute can
+ * cause a real or simulated payment-gateway call; approve re-runs the full
+ * safety pipeline and may too; reject and confirm-test-payment mutate audit
+ * /confirmation state). Every read/analyze/recommend endpoint is available
+ * to both {@code MERCHANT_ADMIN} and {@code OPERATOR}.
  */
 @Configuration
 @EnableWebSecurity
@@ -83,6 +83,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/webhooks/**").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/execute").hasRole("MERCHANT_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/recovery/*/approve").hasRole("MERCHANT_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/recovery/*/reject").hasRole("MERCHANT_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/demo/recovery/confirm-test-payment/*").hasRole("MERCHANT_ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
