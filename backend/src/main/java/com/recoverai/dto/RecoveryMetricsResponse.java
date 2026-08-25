@@ -26,6 +26,9 @@ public record RecoveryMetricsResponse(
         BigDecimal recoveryRate,
         BigDecimal executionSuccessRate,
         BigDecimal confirmationRate,
-        BigDecimal pendingConfirmationAmount
+        BigDecimal pendingConfirmationAmount,
+        long transactionsRecovered,
+        long transactionsEscalated,
+        long transactionsStopped
 ) {
 }

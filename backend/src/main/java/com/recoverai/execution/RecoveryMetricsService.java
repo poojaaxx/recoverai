@@ -2,8 +2,10 @@ package com.recoverai.execution;
 
 import com.recoverai.domain.PaymentConfirmationStatus;
 import com.recoverai.domain.RecoveryAttemptStatus;
+import com.recoverai.domain.TransactionStatus;
 import com.recoverai.dto.RecoveryMetricsResponse;
 import com.recoverai.repository.RecoveryAttemptRepository;
+import com.recoverai.repository.TransactionRepository;
 import com.recoverai.risk.RevenueRiskService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,10 +26,14 @@ public class RecoveryMetricsService {
     private static final int RATE_SCALE = 4;
 
     private final RecoveryAttemptRepository recoveryAttemptRepository;
+    private final TransactionRepository transactionRepository;
     private final RevenueRiskService revenueRiskService;
 
-    public RecoveryMetricsService(RecoveryAttemptRepository recoveryAttemptRepository, RevenueRiskService revenueRiskService) {
+    public RecoveryMetricsService(RecoveryAttemptRepository recoveryAttemptRepository,
+                                   TransactionRepository transactionRepository,
+                                   RevenueRiskService revenueRiskService) {
         this.recoveryAttemptRepository = recoveryAttemptRepository;
+        this.transactionRepository = transactionRepository;
         this.revenueRiskService = revenueRiskService;
     }
 
@@ -51,7 +57,10 @@ public class RecoveryMetricsService {
                 rate(confirmedRecoveries, totalAttempts),
                 rate(successfulExecutions, totalAttempts),
                 rate(confirmedRecoveries, successfulExecutions),
-                pendingConfirmation
+                pendingConfirmation,
+                transactionRepository.countByStatus(TransactionStatus.RECOVERED),
+                transactionRepository.countByStatus(TransactionStatus.ESCALATED),
+                transactionRepository.countByStatus(TransactionStatus.STOPPED)
         );
     }
 
