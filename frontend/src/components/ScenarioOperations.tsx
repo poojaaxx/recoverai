@@ -11,6 +11,7 @@ import type {
   TransactionDetail,
 } from '../types/recovery'
 import { Badge, riskTone } from './Badge'
+import { AuditTimeline } from './AuditTimeline'
 
 const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
 const percent = new Intl.NumberFormat('en-IN', { style: 'percent', maximumFractionDigits: 0 })
@@ -207,6 +208,8 @@ export function ScenarioOperations({
   const policyReason = op.policyRecheck?.reason ?? op.agentEvaluation?.policyDecision.reason ?? scenario.policyReason
   const policyChecks = op.policyRecheck?.policyChecks ?? op.agentEvaluation?.policyDecision.policyChecks ?? null
   const requiresHumanApproval = op.policyRecheck?.requiresHumanApproval ?? scenario.requiresHumanApproval
+  const finalAction = op.agentEvaluation?.finalAction ?? scenario.finalAction
+  const aiDiffersFromPolicy = recommendedAction != null && finalAction != null && recommendedAction !== finalAction
 
   const executed = op.execution?.executed ?? scenario.executed
   const provider = op.execution?.provider ?? scenario.provider
@@ -392,6 +395,12 @@ export function ScenarioOperations({
           </ActionButton>
         </div>
         {policyAction.error && <InlineError error={policyAction.error} onRetry={handleEvaluatePolicy} />}
+        {aiDiffersFromPolicy && (
+          <div className="mt-2 rounded-md border border-[var(--color-warning)] bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] px-3 py-2 text-sm text-[var(--color-warning)]">
+            AI recommended <strong>{recommendedAction}</strong>, policy authorized <strong>{finalAction}</strong> — the AI's
+            recommendation does not decide what runs.
+          </div>
+        )}
         {policyDecision ? (
           <PolicyStatusBanner decision={policyDecision} reason={policyReason ?? 'No reason returned.'} />
         ) : (
@@ -491,20 +500,9 @@ export function ScenarioOperations({
           </ActionButton>
         </div>
         {auditAction.error && <InlineError error={auditAction.error} onRetry={handleRefreshAudit} />}
-        <ol className="mt-2 space-y-2 border-l border-[var(--color-border)] pl-4">
-          {auditEntries.map((entry) => (
-            <li key={entry.id} className="relative text-sm">
-              <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-[var(--color-accent)]" />
-              <div className="font-mono text-xs text-[var(--color-accent)]">{entry.eventType}</div>
-              <div className="text-[var(--color-text-secondary)]">
-                {entry.actor}
-                {entry.decision ? ` · ${entry.decision}` : ''} · {new Date(entry.timestamp).toLocaleTimeString()}
-              </div>
-              {entry.reason && <div className="mt-0.5 text-[var(--color-text-secondary)]">{entry.reason}</div>}
-            </li>
-          ))}
-        </ol>
-        {auditEntries.length === 0 && <p className="mt-2 text-sm text-[var(--color-text-secondary)]">No audit events yet.</p>}
+        <div className="mt-2">
+          <AuditTimeline entries={auditEntries} />
+        </div>
       </section>
     </div>
   )
