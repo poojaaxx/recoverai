@@ -35,10 +35,13 @@ public class DemoSeedRunner implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DemoSeedRunner.class);
 
     private final DemoDataSeeder seeder;
+    private final AppUserSeeder appUserSeeder;
     private final boolean seedEnabled;
 
-    public DemoSeedRunner(DemoDataSeeder seeder, @Value("${recoverai.demo.seed-enabled:false}") boolean seedEnabled) {
+    public DemoSeedRunner(DemoDataSeeder seeder, AppUserSeeder appUserSeeder,
+                           @Value("${recoverai.demo.seed-enabled:false}") boolean seedEnabled) {
         this.seeder = seeder;
+        this.appUserSeeder = appUserSeeder;
         this.seedEnabled = seedEnabled;
     }
 
@@ -52,5 +55,8 @@ public class DemoSeedRunner implements ApplicationRunner {
         log.info("Demo dataset seeded: {} transactions, {} recovery attempts, {} audit log rows, {} named demo transactions.",
                 report.totalTransactions(), report.recoveryAttemptCount(), report.auditLogCount(),
                 report.demoTransactionIds().size());
+
+        appUserSeeder.seedDemoUsers();
+        log.info("Demo login accounts seeded (or left unseeded if no demo password env vars were set) - see docs/ARCHITECTURE.md.");
     }
 }

@@ -66,6 +66,25 @@ recoverai:
   demo:
     seed-enabled: ${DEMO_SEED_ENABLED:false}
 
+  # Production readiness phase - application-level authentication. A
+  # stateless JWT (see com.recoverai.security) signed with jwt-secret; the
+  # checked-in default below is a documented, public, local-dev-only value
+  # - any real deployment MUST override AUTH_JWT_SECRET. Demo login
+  # accounts (one MERCHANT_ADMIN, one OPERATOR) are only created if their
+  # passwords are explicitly set - see AppUserSeeder, gated by the same
+  # DEMO_SEED_ENABLED flag as the rest of the demo dataset.
+  auth:
+    jwt-secret: ${AUTH_JWT_SECRET:local-dev-only-insecure-default-jwt-signing-secret-change-in-production-0123456789}
+    jwt-expiration-minutes: ${AUTH_JWT_EXPIRATION_MINUTES:480}
+    # These defaults are intentionally public, documented demo credentials
+    # for judge/reviewer login on the buildathon deployment - not real
+    # secrets (see README "Demo login"). Override via env vars to rotate
+    # or disable them for any non-demo deployment.
+    demo-admin-username: ${DEMO_ADMIN_USERNAME:merchant.admin}
+    demo-admin-password: ${DEMO_ADMIN_PASSWORD:RecoverAI-Judge-Admin-2026}
+    demo-operator-username: ${DEMO_OPERATOR_USERNAME:operator}
+    demo-operator-password: ${DEMO_OPERATOR_PASSWORD:RecoverAI-Judge-Operator-2026}
+
   # Phase 10 - lightweight, in-memory, per-client rate limiting for the
   # endpoints that do real AI/risk/execution work. See RateLimitFilter.
   # Disabled automatically in the "test" profile regardless of this value.
