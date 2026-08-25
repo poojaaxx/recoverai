@@ -2,6 +2,7 @@ package com.recoverai.execution;
 
 import com.recoverai.agent.RecoveryAgentService;
 import com.recoverai.domain.AuditLog;
+import com.recoverai.domain.PaymentConfirmationStatus;
 import com.recoverai.domain.PolicyDecision;
 import com.recoverai.domain.RecoveryAction;
 import com.recoverai.domain.RecoveryAttempt;
@@ -227,7 +228,9 @@ public class RecoveryExecutionService {
                 winner.getStatus(), winner.getAmount(), zeroIfNull(winner.getAmountRecovered()),
                 "mock".equals(winner.getProvider()), null, null, true,
                 "A concurrent request already executed this recovery attempt; returning its result.",
-                null, Instant.now());
+                null, Instant.now(),
+                confirmationStatus(winner), winner.getConfirmedAmount(), winner.getConfirmedCurrency(),
+                winner.getProviderPaymentId(), winner.getConfirmedAt());
     }
 
     // ---------------------------------------------------------------- response builders
@@ -240,7 +243,8 @@ public class RecoveryExecutionService {
                 agentResponse.aiRecommendation(), agentResponse.policyDecision(),
                 agentResponse.requiresHumanApproval(), false, null, agentResponse.finalAction(),
                 null, null, null, transaction.getAmount(), zero(), false,
-                null, null, duplicate, note, agentResponse.auditEventId(), Instant.now());
+                null, null, duplicate, note, agentResponse.auditEventId(), Instant.now(),
+                PaymentConfirmationStatus.NOT_CONFIRMED, null, null, null, null);
     }
 
     private RecoveryExecutionResponse duplicateResponse(Transaction transaction,
@@ -255,7 +259,9 @@ public class RecoveryExecutionService {
                 existing.getStatus(), existing.getAmount(), zeroIfNull(existing.getAmountRecovered()),
                 "mock".equals(existing.getProvider()), null, null, true,
                 "This exact recovery attempt was already executed; returning its result rather than calling the provider again.",
-                agentResponse.auditEventId(), Instant.now());
+                agentResponse.auditEventId(), Instant.now(),
+                confirmationStatus(existing), existing.getConfirmedAmount(), existing.getConfirmedCurrency(),
+                existing.getProviderPaymentId(), existing.getConfirmedAt());
     }
 
     private RecoveryExecutionResponse executedResponse(Transaction transaction,
@@ -269,7 +275,15 @@ public class RecoveryExecutionService {
                 result.provider(), result.providerReference(), attempt.getStatus(),
                 result.amount(), result.amountRecovered(), result.simulated(),
                 result.failureCode(), result.failureReason(), duplicate, note,
-                agentResponse.auditEventId(), Instant.now());
+                agentResponse.auditEventId(), Instant.now(),
+                confirmationStatus(attempt), attempt.getConfirmedAmount(), attempt.getConfirmedCurrency(),
+                attempt.getProviderPaymentId(), attempt.getConfirmedAt());
+    }
+
+    /** Every existing row predates Phase 11's not-null column default only in H2 test fixtures built by hand; defends against a null field regardless. */
+    private static PaymentConfirmationStatus confirmationStatus(RecoveryAttempt attempt) {
+        return attempt.getPaymentConfirmationStatus() == null
+                ? PaymentConfirmationStatus.NOT_CONFIRMED : attempt.getPaymentConfirmationStatus();
     }
 
     private static BigDecimal zero() {

@@ -127,6 +127,9 @@ public class RecoveryDemoService {
                 execution.provider(), execution.simulated(), execution.amountRecovered(),
                 execution.failureCode(), execution.duplicate(),
 
+                execution.paymentConfirmationStatus(), execution.confirmedAmount(),
+                execution.providerPaymentId(), execution.confirmedAt(),
+
                 buildSafetyExplanation(execution),
                 timeline
         );

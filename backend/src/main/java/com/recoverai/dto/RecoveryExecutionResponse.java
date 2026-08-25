@@ -1,5 +1,6 @@
 package com.recoverai.dto;
 
+import com.recoverai.domain.PaymentConfirmationStatus;
 import com.recoverai.domain.RecoveryAction;
 import com.recoverai.domain.RecoveryAttemptStatus;
 import com.recoverai.payment.PaymentFailureReason;
@@ -29,6 +30,14 @@ import java.util.UUID;
  * amountRecovered}, ...) are still accurate, drawn from the winning
  * attempt, which already reported its own recommendation/policyDecision
  * to whichever request performed it.
+ * <p>
+ * {@code paymentConfirmationStatus} (Phase 11) is a strictly separate fact
+ * from {@code executionStatus}: {@code executionStatus=SUCCESS} only means
+ * the provider call (e.g. creating a payment link) went through -
+ * {@code paymentConfirmationStatus=CONFIRMED} is the only field that means
+ * a verified webhook proved the customer actually paid. {@code
+ * amountRecovered} only becomes non-zero once that happens - see {@code
+ * com.recoverai.webhook.PaymentConfirmationService}.
  */
 public record RecoveryExecutionResponse(
         UUID transactionId,
@@ -50,6 +59,11 @@ public record RecoveryExecutionResponse(
         boolean duplicate,
         String executionNote,
         UUID auditEventId,
-        Instant executedAt
+        Instant executedAt,
+        PaymentConfirmationStatus paymentConfirmationStatus,
+        BigDecimal confirmedAmount,
+        String confirmedCurrency,
+        String providerPaymentId,
+        Instant confirmedAt
 ) {
 }

@@ -1,5 +1,6 @@
 package com.recoverai.dto;
 
+import com.recoverai.domain.PaymentConfirmationStatus;
 import com.recoverai.domain.PolicyDecision;
 import com.recoverai.domain.RecoveryAction;
 import com.recoverai.domain.RecoveryAttemptStatus;
@@ -7,6 +8,7 @@ import com.recoverai.domain.RiskLevel;
 import com.recoverai.payment.PaymentFailureReason;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -50,6 +52,11 @@ public record RecoveryDemoScenarioResponse(
         BigDecimal amountRecovered,
         PaymentFailureReason failureCode,
         boolean duplicate,
+
+        PaymentConfirmationStatus paymentConfirmationStatus,
+        BigDecimal confirmedAmount,
+        String providerPaymentId,
+        Instant confirmedAt,
 
         String safetyExplanation,
         List<AuditTimelineEntryResponse> auditTimeline
