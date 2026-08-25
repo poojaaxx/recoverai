@@ -62,6 +62,10 @@ public class AuditController {
      * already carries for the per-transaction timeline - no secrets, no
      * internal-only fields.
      */
+    /** Sentinel range bounds used when {@code from}/{@code to} are omitted - see {@code AuditLogRepository.search}'s javadoc for why the repository query needs non-null values here rather than a null-guarded comparison. */
+    private static final Instant MIN_TIMESTAMP = Instant.EPOCH;
+    private static final Instant MAX_TIMESTAMP = Instant.parse("9999-12-31T23:59:59Z");
+
     @GetMapping
     @Transactional(readOnly = true)
     public Page<GlobalAuditEntryResponse> search(
@@ -72,7 +76,8 @@ public class AuditController {
             @RequestParam(required = false) Instant to,
             @PageableDefault(size = 25, sort = "timestamp", direction = org.springframework.data.domain.Sort.Direction.DESC)
             Pageable pageable) {
-        return auditLogRepository.search(eventType, actor, transactionId, from, to, pageable)
+        return auditLogRepository.search(eventType, actor, transactionId,
+                        from == null ? MIN_TIMESTAMP : from, to == null ? MAX_TIMESTAMP : to, pageable)
                 .map(GlobalAuditEntryResponse::from);
     }
 

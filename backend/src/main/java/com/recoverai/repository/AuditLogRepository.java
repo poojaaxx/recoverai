@@ -22,14 +22,24 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
      * {@code TransactionRepository.search} already uses rather than a
      * dynamic Specification. Ordering (newest-first by default) comes from
      * the caller's {@link Pageable}, not hardcoded here.
+     * <p>
+     * {@code from}/{@code to} are always non-null by the time they reach
+     * this query (see {@code AuditController.search}, which substitutes
+     * sentinel min/max bounds for an omitted date range) - real PostgreSQL
+     * cannot determine the parameter type for {@code (:from IS NULL OR
+     * a.timestamp >= :from)} the way it can for the string/UUID filters
+     * above (confirmed via {@code AuditLogRepositoryPostgresTest} against a
+     * real embedded Postgres instance: {@code ERROR: could not determine
+     * data type of parameter}), so a plain range comparison is used instead
+     * of the null-guarded form for these two.
      */
     @Query("""
             SELECT a FROM AuditLog a
             WHERE (:eventType IS NULL OR a.eventType = :eventType)
               AND (:actor IS NULL OR a.actor = :actor)
               AND (:transactionId IS NULL OR a.transaction.id = :transactionId)
-              AND (:from IS NULL OR a.timestamp >= :from)
-              AND (:to IS NULL OR a.timestamp <= :to)
+              AND a.timestamp >= :from
+              AND a.timestamp <= :to
             """)
     Page<AuditLog> search(@Param("eventType") String eventType, @Param("actor") String actor,
                            @Param("transactionId") UUID transactionId, @Param("from") Instant from,
