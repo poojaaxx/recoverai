@@ -17,6 +17,13 @@ to the demo flow itself — see
 One practical note if a demo hits it: the evaluation/execution endpoints
 now return `429` if the same client sends more than 20 requests in 60
 seconds — normal clicking through the demo page stays well under that.
+Phase 12 added real payment confirmation via a verified Razorpay webhook
+(`POST /api/webhooks/razorpay`) and portfolio metrics
+(`GET /api/recovery/metrics`) — see
+[README.md § What's real vs. simulated](../README.md). This demo runs
+against the default mock payment provider, so every execution stays
+`paymentConfirmationStatus=NOT_CONFIRMED` forever (no real webhook can ever
+arrive for a mock-generated reference) — see "The five scenarios" below.
 
 ## Running the demo
 
@@ -64,7 +71,12 @@ Open `http://localhost:5173/demo/recovery`.
 
 1. **4 KPI cards** at the top: Revenue at Risk, Potentially Recoverable
    Revenue, Confirmed Revenue Recovered (always ₹0.00 today — see below),
-   and Transactions at Risk.
+   and Transactions at Risk (with filter chips: All/Allowed/Escalated/
+   Blocked/Stopped). Below the portfolio actions panel, a **portfolio
+   metrics panel** (`GET /api/recovery/metrics`) shows the same figures
+   computed across every recovery attempt ever made, not just these 5
+   scenarios, plus Recovery Attempts, Confirmed Recoveries, and Pending
+   Confirmation amount.
 2. **A visual pipeline diagram**: Payment Failure → Risk Detection → AI
    Recommendation → Safety Policy → ALLOW? → (yes) Execute Payment →
    Confirmation → Audit, or (no) Escalate/Block/Stop — captioned "AI
@@ -89,7 +101,13 @@ Open `http://localhost:5173/demo/recovery`.
      only when the latest known policy decision is `ALLOW` and nothing
      has been executed yet for this transaction - disabled with a visible
      reason otherwise (`BLOCK`/`ESCALATE`/`STOP` each show their own
-     plain-language banner from the real backend reason)
+     plain-language banner from the real backend reason). The result
+     panel shows **Execution** (status, provider, failure code) and
+     **Payment** (confirmation badge: `NOT CONFIRMED`/`CONFIRMED`/
+     `REJECTED`, confirmed amount, provider payment id) as two separate
+     facts, plus a `SIMULATION — NO REAL MONEY MOVED` banner whenever the
+     execution used the mock provider - see [Payment confirmation](API.md)
+     in docs/API.md.
    - **Refresh audit** → `GET /api/audit/{id}` (Phase 11, read-only, no
      side effects - see [docs/API.md § Audit Trail](API.md#audit-trail))
    - **▶ Run demo** — a guided version of the same steps for the selected
@@ -118,9 +136,11 @@ the safety architecture:
 
 - **`demo-easy-recovery`** — AI recommends `RETRY_PAYMENT` → policy
   `ALLOW` → **executed** through the mock `PaymentGateway`
-  (`simulated=true`, `amountRecovered=0.00`). Shown as `PENDING
-  CONFIRMATION`, never `SUCCESS` — the provider call ran, but nothing
-  confirms the customer actually paid.
+  (`simulated=true`, `amountRecovered=0.00`,
+  `paymentConfirmationStatus=NOT_CONFIRMED`). Shown as `PENDING
+  CONFIRMATION`, never `SUCCESS` — the provider call ran, but no verified
+  webhook has confirmed the customer actually paid (and none ever will,
+  under the default mock provider).
 - **`demo-high-value`** — AI recommends `RETRY_PAYMENT`, but the amount
   (₹47,500) exceeds the autonomous recovery limit, so policy overrides to
   `ESCALATE` (`requiresHumanApproval=true`) → not executed, zero gateway
@@ -160,6 +180,7 @@ for why no `POST /api/demo/reset` was needed.
   it remains planned.
 - A general-purpose dashboard covering any transaction, not just the 5
   curated demo ones (Phase 9).
-- Batch execution and a real, measured "₹X recovered" figure across many
-  transactions (a later phase, once a provider-confirmation mechanism
-  exists).
+- A real Razorpay Test Mode payment actually confirmed end to end — the
+  confirmation flow (Phase 12) is real, tested code, but no live Razorpay
+  Test Mode credentials have been configured in this environment, so no
+  real webhook has ever been received here.

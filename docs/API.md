@@ -5,12 +5,23 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
 Phase 9 (production deployment), Phase 10 (audit, compliance & production
-hardening), and Phase 11 (interactive recovery console) complete — the API
-described below is live at https://recoverai-xrky.onrender.com. Endpoints
-are documented here as they are implemented; see
+hardening), Phase 11 (interactive recovery console), and Phase 12 (payment
+confirmation, webhook verification & measured revenue recovery) complete —
+the API described below is live at https://recoverai-xrky.onrender.com.
+Endpoints are documented here as they are implemented; see
 [README.md](../README.md) for overall phase progress and
 [README.md § Live deployment](../README.md) for
 the deployment record.
+
+Status update - Phase 12 added two endpoints: `POST /api/webhooks/razorpay`
+(inbound payment confirmation) and `GET /api/recovery/metrics` (portfolio
+aggregates) — see [Payment confirmation](#post-apiwebhooksrazorpay) and
+[Recovery metrics](#get-apirecoverymetrics) below. It also added five
+fields to every response that already carried `amountRecovered`
+(`RecoveryExecutionResponse`, and the Phase 8 demo scenario response):
+`paymentConfirmationStatus`, `confirmedAmount`, `confirmedCurrency`,
+`providerPaymentId`, `confirmedAt` — see
+[Execution status vs. payment confirmation](#execution-status-vs-payment-confirmation).
 
 Phase 6 deliberately added **no new endpoint** - `PaymentGateway` (mock by
 default, real Razorpay Payment Links when explicitly enabled) was
@@ -351,9 +362,33 @@ override the action, amount, currency, or policy decision.
   "duplicate": false,
   "executionNote": null,
   "auditEventId": "d2b3...",
-  "executedAt": "2026-08-24T20:46:46Z"
+  "executedAt": "2026-08-24T20:46:46Z",
+  "paymentConfirmationStatus": "NOT_CONFIRMED",
+  "confirmedAmount": null,
+  "confirmedCurrency": null,
+  "providerPaymentId": null,
+  "confirmedAt": null
 }
 ```
+
+#### Execution status vs. payment confirmation
+
+`executionStatus` and `paymentConfirmationStatus` are deliberately separate
+fields answering two different questions:
+
+| Field | Answers | Set by |
+|---|---|---|
+| `executionStatus` | Did the provider call itself go through (e.g. a payment link was created)? | `RecoveryExecutionService` (Phase 7), synchronously with this request |
+| `paymentConfirmationStatus` | Did the customer actually pay? | `PaymentConfirmationService` (Phase 12), asynchronously, only from a verified Razorpay webhook |
+
+`paymentConfirmationStatus` is one of `NOT_CONFIRMED` (the default — no
+webhook has confirmed this attempt yet), `CONFIRMED` (a verified webhook
+matched this exact attempt and its amount/currency), or `REJECTED` (a
+verified webhook arrived but could not be trusted as confirmation of this
+attempt — amount/currency mismatch, or the attempt was not a successful
+execution). `amountRecovered` only becomes non-zero once
+`paymentConfirmationStatus` is `CONFIRMED` — see
+[Payment confirmation](#post-apiwebhooksrazorpay) below.
 
 **Response `200 OK`** — not-executed example (`demo-high-value`, escalated on amount):
 
@@ -495,6 +530,77 @@ Added so the interactive frontend console can refresh a transaction's
 audit trail independently, for any transaction, not just the 5 curated
 demo scenarios.
 
+### Payment confirmation (Phase 12)
+
+See `com.recoverai.webhook.PaymentConfirmationService` and
+[docs/ARCHITECTURE.md § Payment Confirmation](ARCHITECTURE.md) for the full
+design — signature verification, correlation, amount/currency
+verification, and idempotency.
+
+#### `POST /api/webhooks/razorpay`
+
+Inbound Razorpay webhook receiver. This is the **only** path in the system
+that can transition a transaction to `RECOVERED` or set a non-zero
+confirmed amount — there is deliberately no `POST /api/recovery/{id}/confirm`
+or any other endpoint that lets a client mark a payment recovered directly.
+
+**Request** — the raw webhook body Razorpay sends, plus headers
+`X-Razorpay-Signature` (required) and `X-Razorpay-Event-Id` (optional —
+used for idempotency when present; a deterministic fallback derived from
+the event type and payment/payment-link id is used otherwise).
+
+**Response `400 Bad Request`** if the signature is missing or invalid —
+the payload is never parsed or acted on in this case:
+
+```json
+{ "error": "Invalid webhook signature." }
+```
+
+**Response `200 OK`** for every signature-verified delivery, regardless of
+whether it resulted in a confirmation — Razorpay should not retry a
+delivery that was received and understood, only ones that never reached
+the server:
+
+```json
+{ "status": "CONFIRMED", "reason": "Payment confirmed; transaction marked RECOVERED." }
+```
+
+`status` is one of `CONFIRMED`, `REJECTED` (verified but could not be
+trusted as confirmation of a specific attempt — reason explains why),
+`IGNORED` (an event type this system does not act on), or
+`ALREADY_PROCESSED` (a duplicate or concurrently-raced delivery of an
+event already handled — no state changed again). The response body never
+contains the webhook secret, the signature, or the raw payload.
+
+#### `GET /api/recovery/metrics`
+
+Portfolio-level recovery metrics, computed via database aggregates across
+every `RecoveryAttempt` ever created — not just the 5 demo scenarios.
+
+**Response `200 OK`**
+
+```json
+{
+  "totalRevenueAtRisk": 1234567.89,
+  "potentiallyRecoverableRevenue": 654321.00,
+  "recoveryAttempts": 42,
+  "successfulExecutionCount": 30,
+  "confirmedRecoveryCount": 0,
+  "confirmedRecoveredRevenue": 0.00,
+  "recoveryRate": 0.0000,
+  "executionSuccessRate": 0.7143,
+  "confirmationRate": 0.0000,
+  "pendingConfirmationAmount": 74970.00
+}
+```
+
+`confirmedRecoveredRevenue` is summed only from attempts a verified webhook
+confirmed — never from execution success or `potentiallyRecoverableRevenue`.
+With the default mock provider (or an unconfigured Razorpay), it is
+honestly `0.00`, as shown above. `pendingConfirmationAmount` is the sum of
+`amount` across attempts that executed successfully but have not yet been
+confirmed — money genuinely "in flight."
+
 ## Planned (not yet implemented)
 
 Per the product spec, the following endpoints will be added in later
@@ -502,9 +608,7 @@ phases:
 
 - `GET /api/dashboard/summary`
 - `POST /api/recovery/simulate-failure/{transactionId}`
-- `GET /api/recovery/metrics`
 - `POST /api/demo/seed`
-- `POST /api/webhooks/razorpay`
 
 `POST /api/recovery/execute/{transactionId}` was implemented in Phase 7 as
 `POST /api/recovery/{transactionId}/execute` (see above). `POST

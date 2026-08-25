@@ -28,12 +28,20 @@ Transaction data
    -> AI diagnosis + recommendation
    -> Safety policy check (deterministic — the actual gatekeeper)
    -> Recovery action execution (Razorpay Test Mode, or a simulation adapter)
+   -> Provider webhook confirms the payment (signature-verified, idempotent)
    -> Audit trail + metrics
 ```
 
 The AI only ever *recommends*. It has no access to payment APIs. A separate,
 deterministic policy engine is the one thing that decides whether an action
 is actually allowed to run — see [Safety](#safety) below.
+
+**Execution success is not the same thing as confirmed recovery.** Running
+a payment action means a provider call went through (e.g. a payment link was
+created) — it does not mean the customer paid. Only a verified, signature
+-checked webhook from the provider can confirm that, and only that
+confirmation ever marks a transaction "recovered" or reports non-zero
+recovered revenue.
 
 ## Safety, in plain terms
 
@@ -48,8 +56,15 @@ These are hard boundaries in the code, not just intentions:
   when explicitly turned on (two separate opt-ins). By default, every
   execution runs through a mock gateway that's honest about being simulated.
 - Nothing in this system marks a transaction "recovered" or reports revenue
-  collected unless a payment was genuinely confirmed. Simulated runs stay
-  at ₹0 recovered — always.
+  collected unless a payment was genuinely confirmed by a verified provider
+  webhook. Simulated runs stay at ₹0 recovered — always.
+- The webhook endpoint verifies the provider's signature over the raw
+  request body before trusting a single field of it, matches a confirmation
+  to a specific recovery attempt (never by amount alone or a client
+  -supplied id), independently re-checks the paid amount/currency, and is
+  idempotent — a duplicated or concurrently-replayed delivery can never
+  double-count revenue. There is no frontend or API path that can mark a
+  transaction recovered directly.
 - The frontend never decides anything — it's a thin client over these same
   backend rules, so what you click can't skip a safety check the API
   wouldn't already enforce.
@@ -132,10 +147,16 @@ against actual Postgres, not just H2's compatibility mode.
   simulated. A real Razorpay Test Mode integration exists in code but
   requires explicit configuration to turn on, and has not been exercised
   against Razorpay's live API in this environment.
-- No transaction has ever been marked "recovered," and no recovered-revenue
-  figure has ever been non-zero, outside of a genuinely confirmed payment —
-  which nothing available today (mock or unconfigured Razorpay) can
-  produce.
+- The payment-confirmation webhook (`POST /api/webhooks/razorpay`) is real,
+  tested code — signature verification, correlation, amount/currency
+  checks, and idempotency are all exercised by real signed test fixtures
+  (see [Testing](#testing)). No transaction has ever been marked
+  "recovered," and no recovered-revenue figure has ever been non-zero,
+  outside of a genuinely confirmed payment — which nothing available today
+  (mock provider, or Razorpay left unconfigured) can produce. **No real
+  Razorpay Test Mode webhook has been received in this environment** — no
+  real payment has ever been confirmed here; that claim is made only for
+  the day real Test Mode credentials and a live webhook are configured.
 
 ## Known limitations
 
@@ -164,8 +185,9 @@ against actual Postgres, not just H2's compatibility mode.
 - [x] Production deployment (Render + Vercel + Neon)
 - [x] Security/compliance hardening (rate limiting, security headers, PII masking, audit trail)
 - [x] Interactive recovery console — every action calls the real backend
+- [x] Payment confirmation via a verified, idempotent Razorpay webhook — the only path that can mark a transaction recovered
 - [ ] General-purpose transaction dashboard (beyond the curated demo scenarios)
-- [ ] A real, measured "₹ recovered" figure across many transactions, once a provider-confirmation mechanism (e.g. a webhook) exists
+- [ ] A real Razorpay Test Mode payment actually confirmed end to end (needs live Test Mode credentials, not available in this environment)
 
 ## Repository layout
 
@@ -178,6 +200,7 @@ recoverai/
 │       ├── agent/      AI recovery agent
 │       ├── payment/    payment gateway abstraction (mock + Razorpay)
 │       ├── execution/  end-to-end recovery execution pipeline
+│       ├── webhook/    payment confirmation: signature verification, matching, idempotency
 │       ├── demo/       read/aggregation layer for the demo dashboard
 │       └── seed/       synthetic dataset generator
 ├── frontend/          Vite + React + TypeScript console

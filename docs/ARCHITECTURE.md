@@ -5,13 +5,14 @@ Status: Phase 1 (foundation), Phase 2 (domain + database), Phase 3
 (AI recovery agent), Phase 6 (Razorpay integration / payment adapter),
 Phase 7 (recovery execution pipeline), Phase 8 (failure-recovery demo),
 Phase 9 (production deployment), Phase 10 (audit, compliance & production
-hardening), and Phase 11 (interactive recovery console) complete — this
-architecture is deployed and live (Neon PostgreSQL, Render backend,
+hardening), Phase 11 (interactive recovery console), and Phase 12 (payment
+confirmation, webhook verification & measured revenue recovery) complete —
+this architecture is deployed and live (Neon PostgreSQL, Render backend,
 Vercel frontend; see
 [README.md § Live deployment](../README.md)).
-This document will be filled in further as later phases (batch execution,
-recovery metrics, dashboard) land, so that it always accurately reflects
-what is actually implemented rather than the target design.
+This document will be filled in further as later phases (a general-purpose
+transaction dashboard) land, so that it always accurately reflects what is
+actually implemented rather than the target design.
 
 ## Current state
 
@@ -599,10 +600,97 @@ did before this phase, and independently re-blocks a duplicate execute
 attempt regardless of what the frontend's button state shows (verified
 live - see README § Interactive Recovery Console).
 
+## Payment Confirmation (Phase 12)
+
+Closes the gap the Phase 7/8 sections above deliberately left open:
+execution success (a provider call went through) is not confirmed
+recovery (the customer actually paid). See
+[docs/API.md § Payment confirmation](API.md) for the request/response
+shapes; this section covers the design.
+
+```
+RecoveryExecutionService creates a Razorpay Payment Link
+   -> provider_reference persisted on the RecoveryAttempt (already existed, Phase 6/7)
+   -> customer pays the link
+   -> Razorpay sends a payment_link.paid webhook
+   -> POST /api/webhooks/razorpay
+   -> signature verified (before anything else)
+   -> event correlated to the RecoveryAttempt by provider_reference
+   -> confirmed amount/currency independently verified against the attempt
+   -> RecoveryAttempt.paymentConfirmationStatus = CONFIRMED, amountRecovered set
+   -> Transaction -> RECOVERED
+   -> audit trail + GET /api/recovery/metrics
+```
+
+- **`com.recoverai.webhook.RazorpayWebhookSignature`** - `HMAC-SHA256(rawBody, webhookSecret)`,
+  hex-encoded, compared with `MessageDigest.isEqual` (constant-time).
+  Fails closed (`false`) on any blank/missing input, including an unset
+  secret - a misconfigured deployment can never accidentally accept
+  unsigned requests. The same function builds signed fixtures for tests,
+  so verification is exercised through the real endpoint rather than a
+  parallel unsigned bypass.
+- **`com.recoverai.webhook.PaymentConfirmationService`** - the only
+  component that can call `Transaction.setStatus(RECOVERED)` or set a
+  non-zero `RecoveryAttempt.amountRecovered`. Verifies the signature over
+  the *raw* request body before parsing a single field (re-serializing
+  parsed JSON is not guaranteed to reproduce what was signed). Correlates
+  a `payment_link.paid` event to a `RecoveryAttempt` by
+  `providerReference` (the payment link id the attempt itself created in
+  Phase 6/7) - never by amount alone, never by trusting a client-supplied
+  transaction id. Independently re-verifies the confirmed amount (paise ->
+  `BigDecimal`, `RoundingMode.HALF_UP`, never floating point) and currency
+  against the attempt's own authorized amount before confirming anything;
+  any mismatch is recorded as `REJECTED` and the transaction is left
+  untouched.
+- **Idempotency** - `webhook_events.provider_event_id` carries a real
+  unique constraint (migration V11, scoped by `provider`), the same
+  reserve-first-then-resolve-the-race pattern
+  `RecoveryExecutionService` uses for execution idempotency (Phase 7): the
+  first write in the transaction is the `WebhookEvent` insert; a
+  concurrent or replayed delivery of the same event loses that insert to
+  `DataIntegrityViolationException` and is resolved from the winner's
+  already-committed row, never reprocessed. Proven under genuine thread
+  concurrency by `PaymentConfirmationConcurrencyTest`, mirroring
+  `RecoveryExecutionConcurrencyTest`.
+- **`RecoveryAttempt` gained five columns** (migration V11):
+  `paymentConfirmationStatus` (`NOT_CONFIRMED`/`CONFIRMED`/`REJECTED`,
+  defaults to `NOT_CONFIRMED` for every existing and future row until a
+  webhook says otherwise), `confirmedAmount`, `confirmedCurrency`,
+  `providerPaymentId` (Razorpay's payment id - distinct from
+  `providerReference`, the payment *link* id), `confirmedAt`. This is a
+  strictly separate fact from `status` (`SUCCESS`/`FAILED`/...) - a
+  `RecoveryAttempt` can be `status=SUCCESS` and
+  `paymentConfirmationStatus=NOT_CONFIRMED` at the same time, and stays
+  that way forever under the default mock provider (no real webhook can
+  ever arrive for a mock-generated reference).
+- **`RecoveryMetricsService`** (`GET /api/recovery/metrics`) - a pure
+  read/aggregation layer, mirroring `RecoveryDemoService`'s "no new
+  decision logic" discipline. `confirmedRecoveredRevenue` is summed only
+  from `CONFIRMED` attempts via a database aggregate query, never derived
+  from execution success or `potentiallyRecoverableRevenue`.
+- **No new frontend bypass.** The interactive console (Phase 11) displays
+  `paymentConfirmationStatus` as a fact returned by the backend; there is
+  no endpoint it could call to set that fact itself. A `SIMULATION - NO
+  REAL MONEY MOVED` label is shown whenever `simulated=true` (the default,
+  mock-provider path) rather than the app ever implying a mock execution
+  is real revenue.
+
+**Why no test-only confirmation-simulator endpoint was added:** Phase 12's
+spec allowed one, restricted from production. This codebase instead tests
+the confirmation flow by POSTing properly HMAC-signed fixtures to the real
+`POST /api/webhooks/razorpay` endpoint (see
+`PaymentConfirmationServiceTest`, `WebhookControllerTest`) - exercising the
+actual signature-verification code path rather than adding a second,
+parallel path that would need its own reasoning about whether it could
+ever be reachable in production.
+
 ## Sections to be added in later phases
 
-- Batch recovery execution and aggregate "revenue recovered" metrics (explicitly deferred - see the Phase 7 spec's own prohibition on claiming this before confirmed provider payment data exists)
-- Provider-confirmed payment detection (a Razorpay webhook) - the only mechanism that could ever make `amountRecovered > 0` reachable in this codebase
 - Observability / audit trail design (beyond the `AuditLog` entity itself)
 - A full dashboard (Phase 9) - the Phase 8 `/demo/recovery` page is a
   curated 5-scenario walkthrough, not a general-purpose transaction browser
+- Refund / partial-refund / payment-failed webhook events - the
+  `PaymentConfirmationStatus`/`WebhookEvent` model is deliberately shaped
+  so these can be added without corrupting the confirmed-revenue metric
+  (a new status and a few new event-type branches, not a redesign), but
+  none are implemented yet
