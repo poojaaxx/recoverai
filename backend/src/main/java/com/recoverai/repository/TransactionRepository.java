@@ -55,11 +55,16 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * needed for the risk-level filter and available for risk-based
      * sorting via the caller's {@link Pageable}.
      * <p>
-     * {@code recoveryAttemptStatus} matches a transaction that has <b>any</b>
-     * recovery attempt in that status, not only its latest one — a
-     * deliberate simplification; "latest attempt status" would need a
-     * correlated subquery per row and isn't worth the complexity for a
-     * dashboard filter.
+     * {@code recoveryAttemptStatus} matches a transaction whose <b>latest</b>
+     * recovery attempt (highest {@code attemptNumber} — attempt numbers are
+     * assigned sequentially per transaction by {@code
+     * RecoveryExecutionService}, so this is deterministic even when two
+     * attempts share the same {@code executedAt} timestamp) is in that
+     * status — not merely "has any attempt ever in that status". A
+     * transaction with attempt 1 = FAILED, attempt 2 = SUCCESS matches
+     * {@code SUCCESS} and not {@code FAILED}. Older attempts remain fully
+     * queryable via {@code GET /api/transactions/{id}/detail}, which returns
+     * the complete history — this filter only narrows the list view.
      * <p>
      * {@code searchExternalIdLike} matches a case-insensitive substring of
      * {@code externalTransactionId}; {@code searchId} matches the
@@ -82,7 +87,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
               AND (:atRiskOnly = FALSE OR (r.amountAtRisk IS NOT NULL AND r.amountAtRisk > 0))
               AND (:recoveredOnly = FALSE OR t.status = com.recoverai.domain.TransactionStatus.RECOVERED)
               AND (:recoveryAttemptStatus IS NULL OR EXISTS (
-                    SELECT 1 FROM RecoveryAttempt ra WHERE ra.transaction = t AND ra.status = :recoveryAttemptStatus))
+                    SELECT 1 FROM RecoveryAttempt ra WHERE ra.transaction = t
+                      AND ra.status = :recoveryAttemptStatus
+                      AND ra.attemptNumber = (SELECT MAX(ra2.attemptNumber) FROM RecoveryAttempt ra2 WHERE ra2.transaction = t)))
             """)
     Page<Transaction> search(
             @Param("status") TransactionStatus status,

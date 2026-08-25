@@ -245,6 +245,102 @@ class TransactionDashboardServiceTest {
         assertThat(item.latestRecoveryStatus()).isEqualTo(RecoveryAttemptStatus.SUCCESS);
     }
 
+    // ---------------------------------------------------------------- recoveryAttemptStatus filter (latest attempt only)
+
+    private RecoveryAttempt attempt(Transaction t, int number, RecoveryAttemptStatus status, Instant executedAt) {
+        return recoveryAttemptRepository.save(RecoveryAttempt.builder()
+                .transaction(t).action(RecoveryAction.RETRY_PAYMENT).status(status)
+                .attemptNumber(number).amount(t.getAmount()).executedAt(executedAt)
+                .idempotencyKey(t.getId() + ":RETRY_PAYMENT:" + number).build());
+    }
+
+    @Test
+    void latestAttemptFilter_matchesLatestStatus_notAnEarlierOne() {
+        String prefix = "dash_latest_filter_" + UUID.randomUUID();
+        Transaction t = transaction(TransactionStatus.FAILED, new BigDecimal("500.00"), prefix, FailureCategory.TEMPORARY_FAILURE);
+        attempt(t, 1, RecoveryAttemptStatus.FAILED, Instant.now().minusSeconds(100));
+        attempt(t, 2, RecoveryAttemptStatus.SUCCESS, Instant.now());
+
+        Page<TransactionListItemResponse> matchingSuccess = service.search(null, null, null, null, null, null,
+                prefix, false, false, RecoveryAttemptStatus.SUCCESS, TransactionSort.NEWEST, PageRequest.of(0, 10));
+        assertThat(matchingSuccess.getContent()).extracting(TransactionListItemResponse::id).containsExactly(t.getId());
+
+        Page<TransactionListItemResponse> matchingFailed = service.search(null, null, null, null, null, null,
+                prefix, false, false, RecoveryAttemptStatus.FAILED, TransactionSort.NEWEST, PageRequest.of(0, 10));
+        assertThat(matchingFailed.getContent()).isEmpty();
+    }
+
+    @Test
+    void latestAttemptFilter_noAttempts_neverMatches() {
+        String prefix = "dash_latest_none_" + UUID.randomUUID();
+        transaction(TransactionStatus.FAILED, new BigDecimal("500.00"), prefix, FailureCategory.TEMPORARY_FAILURE);
+
+        Page<TransactionListItemResponse> page = service.search(null, null, null, null, null, null,
+                prefix, false, false, RecoveryAttemptStatus.SUCCESS, TransactionSort.NEWEST, PageRequest.of(0, 10));
+
+        assertThat(page.getContent()).isEmpty();
+    }
+
+    @Test
+    void latestAttemptFilter_oneAttempt_matchesItsOwnStatus() {
+        String prefix = "dash_latest_one_" + UUID.randomUUID();
+        Transaction t = transaction(TransactionStatus.FAILED, new BigDecimal("500.00"), prefix, FailureCategory.TEMPORARY_FAILURE);
+        attempt(t, 1, RecoveryAttemptStatus.SUCCESS, Instant.now());
+
+        Page<TransactionListItemResponse> matching = service.search(null, null, null, null, null, null,
+                prefix, false, false, RecoveryAttemptStatus.SUCCESS, TransactionSort.NEWEST, PageRequest.of(0, 10));
+        assertThat(matching.getContent()).extracting(TransactionListItemResponse::id).containsExactly(t.getId());
+
+        Page<TransactionListItemResponse> notMatching = service.search(null, null, null, null, null, null,
+                prefix, false, false, RecoveryAttemptStatus.FAILED, TransactionSort.NEWEST, PageRequest.of(0, 10));
+        assertThat(notMatching.getContent()).isEmpty();
+    }
+
+    @Test
+    void latestAttemptFilter_threeAttempts_onlyTheLatestCounts() {
+        String prefix = "dash_latest_three_" + UUID.randomUUID();
+        Transaction t = transaction(TransactionStatus.FAILED, new BigDecimal("500.00"), prefix, FailureCategory.TEMPORARY_FAILURE);
+        attempt(t, 1, RecoveryAttemptStatus.FAILED, Instant.now().minusSeconds(200));
+        attempt(t, 2, RecoveryAttemptStatus.BLOCKED, Instant.now().minusSeconds(100));
+        attempt(t, 3, RecoveryAttemptStatus.SUCCESS, Instant.now());
+
+        assertThat(service.search(null, null, null, null, null, null, prefix, false, false,
+                RecoveryAttemptStatus.SUCCESS, TransactionSort.NEWEST, PageRequest.of(0, 10)).getContent())
+                .extracting(TransactionListItemResponse::id).containsExactly(t.getId());
+        assertThat(service.search(null, null, null, null, null, null, prefix, false, false,
+                RecoveryAttemptStatus.FAILED, TransactionSort.NEWEST, PageRequest.of(0, 10)).getContent()).isEmpty();
+        assertThat(service.search(null, null, null, null, null, null, prefix, false, false,
+                RecoveryAttemptStatus.BLOCKED, TransactionSort.NEWEST, PageRequest.of(0, 10)).getContent()).isEmpty();
+    }
+
+    @Test
+    void latestAttemptFilter_equalTimestamps_stillDeterminedByAttemptNumberNotTime() {
+        String prefix = "dash_latest_tie_" + UUID.randomUUID();
+        Transaction t = transaction(TransactionStatus.FAILED, new BigDecimal("500.00"), prefix, FailureCategory.TEMPORARY_FAILURE);
+        Instant sameInstant = Instant.now();
+        attempt(t, 1, RecoveryAttemptStatus.FAILED, sameInstant);
+        attempt(t, 2, RecoveryAttemptStatus.SUCCESS, sameInstant);
+
+        Page<TransactionListItemResponse> page = service.search(null, null, null, null, null, null,
+                prefix, false, false, RecoveryAttemptStatus.SUCCESS, TransactionSort.NEWEST, PageRequest.of(0, 10));
+
+        assertThat(page.getContent()).extracting(TransactionListItemResponse::id).containsExactly(t.getId());
+    }
+
+    @Test
+    void latestAttemptFilter_multipleTransactions_onlyTheMatchingOneReturned() {
+        String prefix = "dash_latest_multi_" + UUID.randomUUID();
+        Transaction succeeding = transaction(TransactionStatus.FAILED, new BigDecimal("500.00"), prefix + "_a", FailureCategory.TEMPORARY_FAILURE);
+        attempt(succeeding, 1, RecoveryAttemptStatus.SUCCESS, Instant.now());
+        Transaction failing = transaction(TransactionStatus.FAILED, new BigDecimal("500.00"), prefix + "_b", FailureCategory.TEMPORARY_FAILURE);
+        attempt(failing, 1, RecoveryAttemptStatus.FAILED, Instant.now());
+
+        Page<TransactionListItemResponse> page = service.search(null, null, null, null, null, null,
+                prefix, false, false, RecoveryAttemptStatus.SUCCESS, TransactionSort.NEWEST, PageRequest.of(0, 10));
+
+        assertThat(page.getContent()).extracting(TransactionListItemResponse::id).containsExactly(succeeding.getId());
+    }
+
     // ---------------------------------------------------------------- detail view
 
     @Test
