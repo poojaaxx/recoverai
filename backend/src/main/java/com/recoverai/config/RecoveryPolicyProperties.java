@@ -38,4 +38,16 @@ public class RecoveryPolicyProperties {
 
     /** Lookback window, in hours, used by duplicate-action prevention. */
     private long duplicateActionWindowHours = 24;
+
+    /**
+     * P1.2 - minimum minutes required since the <i>most recent</i> recovery
+     * action of any type before another autonomous action may run on the
+     * same transaction. Distinct from {@link #duplicateActionWindowHours}:
+     * duplicate-action prevention only blocks repeating the exact same
+     * action; this is a general pacing rule across any two actions. {@code
+     * 0} (the default) disables it entirely - kept off by default so it
+     * never interferes with demo scenarios, which are meant to be usable
+     * back-to-back.
+     */
+    private long minCooldownMinutesBetweenActions = 0;
 }

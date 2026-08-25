@@ -118,6 +118,9 @@ public class RecoveryPolicyService {
         outcome = checkDuplicateAction(attempts, action, checks);
         if (outcome.isPresent()) return outcome.get();
 
+        outcome = checkCooldown(attempts, checks);
+        if (outcome.isPresent()) return outcome.get();
+
         outcome = checkRiskFlags(risk, checks);
         if (outcome.isPresent()) return outcome.get();
 
@@ -247,6 +250,43 @@ public class RecoveryPolicyService {
         String reason = "A %s action already %s for this transaction within the last %d hours; duplicate action prevented."
                 .formatted(actionLabel(action), statusWord, windowHours);
         checks.add(new PolicyCheckResponse("DUPLICATE_ACTION", false, reason));
+        return Optional.of(new Evaluation(PolicyDecision.BLOCK, false, reason, checks));
+    }
+
+    /**
+     * P1.2 - a general pacing rule, distinct from {@link #checkDuplicateAction}:
+     * that check only blocks repeating the exact same action; this blocks
+     * <i>any</i> autonomous action within {@code minCooldownMinutesBetweenActions}
+     * of the most recent one of any type. Decision is {@code BLOCK}, not
+     * {@code STOP} - {@code STOP} now persists a durable {@code STOPPED}
+     * transaction status (see {@code RecoveryExecutionService.applyLifecycleStatus}),
+     * which would make a cooldown permanent instead of temporary; {@code
+     * BLOCK} causes no lifecycle transition, so the transaction is simply
+     * re-evaluated fresh (and likely allowed) once the cooldown elapses.
+     * Disabled by default ({@code 0}) - see the property's own javadoc.
+     */
+    private Optional<Evaluation> checkCooldown(List<RecoveryAttempt> attempts, List<PolicyCheckResponse> checks) {
+        long cooldownMinutes = properties.getMinCooldownMinutesBetweenActions();
+        if (cooldownMinutes <= 0) {
+            checks.add(new PolicyCheckResponse("COOLDOWN", true, "No cooldown is configured between recovery actions."));
+            return Optional.empty();
+        }
+        Optional<Instant> mostRecent = attempts.stream().map(RecoveryAttempt::getExecutedAt)
+                .filter(java.util.Objects::nonNull).max(Instant::compareTo);
+        if (mostRecent.isEmpty()) {
+            checks.add(new PolicyCheckResponse("COOLDOWN", true, "No prior recovery action recorded; cooldown does not apply."));
+            return Optional.empty();
+        }
+        Instant readyAt = mostRecent.get().plus(cooldownMinutes, ChronoUnit.MINUTES);
+        boolean passed = !Instant.now().isBefore(readyAt);
+        if (passed) {
+            checks.add(new PolicyCheckResponse("COOLDOWN", true,
+                    "The %d minute cooldown since the last recovery action has elapsed.".formatted(cooldownMinutes)));
+            return Optional.empty();
+        }
+        String reason = "A %d minute cooldown applies since the last recovery action for this transaction; "
+                + "autonomous recovery is temporarily paused, not stopped.".formatted(cooldownMinutes);
+        checks.add(new PolicyCheckResponse("COOLDOWN", false, reason));
         return Optional.of(new Evaluation(PolicyDecision.BLOCK, false, reason, checks));
     }
 

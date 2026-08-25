@@ -241,6 +241,63 @@ class RecoveryPolicyServiceTest {
         assertThat(response.decision()).isEqualTo(PolicyDecision.ALLOW);
     }
 
+    // ---------------------------------------------------------------- P1.2 cooldown
+
+    private RecoveryPolicyService serviceWithCooldown(long minutes) {
+        com.recoverai.config.RecoveryPolicyProperties properties = new com.recoverai.config.RecoveryPolicyProperties();
+        properties.setMinCooldownMinutesBetweenActions(minutes);
+        return new RecoveryPolicyService(transactionRepository, recoveryAttemptRepository, revenueRiskRepository,
+                auditLogRepository, properties);
+    }
+
+    @Test
+    void cooldown_disabledByDefault_recentActionOfAnyTypeDoesNotBlock() {
+        // The real autowired service (min-cooldown-minutes-between-actions: 0) must behave exactly
+        // as it always has - this is the "never breaks the demo" guarantee.
+        Transaction txn = transaction(TransactionStatus.FAILED, new BigDecimal("2499.00"), 1);
+        addAttempt(txn, RecoveryAction.RETRY_PAYMENT, RecoveryAttemptStatus.FAILED, 1, Instant.now());
+
+        RecoveryPolicyDecisionResponse response = recoveryPolicyService.evaluate(txn.getId(), RecoveryAction.CREATE_PAYMENT_LINK);
+
+        assertThat(response.decision()).isEqualTo(PolicyDecision.ALLOW);
+    }
+
+    @Test
+    void cooldown_enabled_recentActionOfAnyType_blocksWithoutStoppingTheTransaction() {
+        Transaction txn = transaction(TransactionStatus.FAILED, new BigDecimal("2499.00"), 1);
+        addAttempt(txn, RecoveryAction.RETRY_PAYMENT, RecoveryAttemptStatus.FAILED, 1, Instant.now());
+
+        RecoveryPolicyDecisionResponse response = serviceWithCooldown(30)
+                .evaluate(txn.getId(), RecoveryAction.CREATE_PAYMENT_LINK);
+
+        // BLOCK, not STOP - a cooldown is temporary and must never persist a durable STOPPED status
+        // (RecoveryExecutionService.applyLifecycleStatus only reacts to ESCALATE/STOP).
+        assertThat(response.decision()).isEqualTo(PolicyDecision.BLOCK);
+        assertThat(response.reason()).contains("cooldown").contains("temporarily paused");
+    }
+
+    @Test
+    void cooldown_enabled_windowElapsed_isAllowed() {
+        Transaction txn = transaction(TransactionStatus.FAILED, new BigDecimal("2499.00"), 1);
+        addAttempt(txn, RecoveryAction.RETRY_PAYMENT, RecoveryAttemptStatus.FAILED, 1,
+                Instant.now().minus(45, ChronoUnit.MINUTES));
+
+        RecoveryPolicyDecisionResponse response = serviceWithCooldown(30)
+                .evaluate(txn.getId(), RecoveryAction.CREATE_PAYMENT_LINK);
+
+        assertThat(response.decision()).isEqualTo(PolicyDecision.ALLOW);
+    }
+
+    @Test
+    void cooldown_enabled_noPriorAttempts_isAllowed() {
+        Transaction txn = transaction(TransactionStatus.FAILED, new BigDecimal("2499.00"), 1);
+
+        RecoveryPolicyDecisionResponse response = serviceWithCooldown(30)
+                .evaluate(txn.getId(), RecoveryAction.RETRY_PAYMENT);
+
+        assertThat(response.decision()).isEqualTo(PolicyDecision.ALLOW);
+    }
+
     // ---------------------------------------------------------------- ESCALATE
 
     @Test
