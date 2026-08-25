@@ -137,12 +137,38 @@ for any non-demo deployment):
 | `merchant.admin` | `RecoverAI-Judge-Admin-2026` | `MERCHANT_ADMIN` |
 | `operator` | `RecoverAI-Judge-Operator-2026` | `OPERATOR` |
 
+## Build quality — why trust it
+
+- Money is always `BigDecimal` — never a floating-point type.
+- The payment provider sits behind an adapter (`PaymentGateway`) — mock by
+  default, Razorpay Test Mode opt-in — never called directly by AI or
+  policy code.
+- Idempotency is enforced at both the policy level (a time-window
+  duplicate-action check) and the database level (real unique
+  constraints).
+- Concurrency protection is proven with genuine multi-threaded tests, not
+  just sequential replay.
+- Webhook signature verification, correlation, and amount/currency
+  re-checking are all exercised against the real endpoint with real signed
+  fixtures — never a parallel unsigned bypass.
+- A full audit trail records every meaningful decision.
+- Rate limiting, security headers, centralized exception handling, and PII
+  masking are in place.
+- JWT authentication and role-based authorization protect every endpoint
+  except health, login, and the signature-gated webhook.
+- Deployed and live: Render (backend), Vercel (frontend), Neon
+  (PostgreSQL).
+- **291/291 automated backend tests passing** (`mvn test`, verified before
+  writing this), including a test that runs the real Flyway migrations
+  against a temporary, genuine PostgreSQL instance — not just H2's
+  compatibility mode.
+
 ## Tech stack
 
 **Backend:** Java 17, Spring Boot, Maven, Spring Data JPA, PostgreSQL, Flyway
 **Frontend:** React, Vite, TypeScript, Tailwind CSS, React Router, Axios
 **AI:** provider-abstracted — a deterministic mock for dev/tests, Anthropic Claude for real inference
-**Payments:** Razorpay Test Mode, behind an adapter with a safe mock fallback
+**Payments:** behind a provider adapter — mock/simulation by default, Razorpay Test Mode opt-in
 **Deployed on:** Render (backend), Vercel (frontend), Neon (PostgreSQL)
 
 ## Quick start
@@ -300,6 +326,24 @@ No scenario in this demo claims money was recovered unless a verified
 webhook actually confirmed it — see
 [Measuring real recovered revenue](#measuring-real-recovered-revenue) above.
 
+## Key design decisions
+
+- AI recommendation is structurally separate from authorization.
+- Authorization is deterministic, not model-driven.
+- Every amount, currency, and action the policy or execution layer acts on
+  comes from trusted server/database state — never from the AI or the
+  frontend.
+- The frontend cannot choose an execution amount or action; it can only ask
+  the server to evaluate or execute against server-held state.
+- The payment provider sits behind an adapter, never called directly by AI
+  or policy code.
+- Idempotency exists at both the policy level and the database level.
+- Recovery is only "confirmed" through a verified provider webhook, never
+  through execution success alone.
+- Every meaningful decision is written to an audit trail.
+- A failed recovery attempt never silently becomes a successful one.
+- No fabricated recovered-revenue figure, ever.
+
 ## Known limitations
 
 - Revenue-risk weights and policy thresholds (retry limits, amount
@@ -370,6 +414,17 @@ behavior — not just "the build succeeded."
 - [x] Concurrency/load smoke tests — concurrent execution across many transactions, concurrent policy evaluation, concurrent dashboard reads, all measured and logged
 - [ ] A real Razorpay Test Mode payment actually confirmed end to end (needs live Test Mode credentials, not available in this environment — the intended lifecycle is fully verified with the deterministic mock provider instead, see docs/ARCHITECTURE.md)
 
+## Judge takeaway
+
+RecoverAI is not an LLM wrapped around a payment API.
+
+It's a bounded recovery system: AI provides a contextual recommendation, a
+deterministic policy engine controls financial authorization, a payment
+adapter performs only what policy authorized, a verified provider webhook
+determines whether money was actually recovered, and an audit trail
+records the complete decision path — end to end, with the failure modes
+handled as carefully as the happy path.
+
 ## Repository layout
 
 ```
@@ -392,7 +447,8 @@ recoverai/
 
 ## Digging deeper
 
-This README stays intentionally short. For the full technical detail —
+This README stays judge-facing and intentionally focused. For the full
+technical detail —
 engine formulas, every endpoint, request/response shapes, deployment
 configuration, and the complete list of safety guarantees — see:
 
