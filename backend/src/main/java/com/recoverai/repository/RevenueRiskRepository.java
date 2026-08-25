@@ -9,6 +9,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -16,6 +18,9 @@ public interface RevenueRiskRepository extends JpaRepository<RevenueRisk, UUID> 
 
     /** transaction_id is unique (V8) - one current risk record per transaction, updated in place on re-analysis. */
     Optional<RevenueRisk> findByTransactionId(UUID transactionId);
+
+    /** Batched equivalent of {@link #findByTransactionId} for a page of transactions - used by the transaction dashboard to avoid one query per row. */
+    List<RevenueRisk> findByTransactionIdIn(Collection<UUID> transactionIds);
 
     Page<RevenueRisk> findByRiskLevel(RiskLevel riskLevel, Pageable pageable);
 

@@ -17,6 +17,9 @@ public interface RecoveryAttemptRepository extends JpaRepository<RecoveryAttempt
 
     List<RecoveryAttempt> findByTransactionIdOrderByAttemptNumberAsc(UUID transactionId);
 
+    /** Batched lookup for a page of transactions (dashboard list view) - the caller picks the highest {@code attemptNumber} per transaction to find "the latest attempt". */
+    List<RecoveryAttempt> findByTransactionIdIn(Collection<UUID> transactionIds);
+
     long countByTransactionIdAndStatus(UUID transactionId, RecoveryAttemptStatus status);
 
     /** Used by {@code RecoveryExecutionService} to detect a replayed/duplicate execution request before ever calling the payment gateway. */
