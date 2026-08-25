@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api, toApiError, type ApiError } from '../lib/api'
 import { useAsyncAction } from '../hooks/useAsyncAction'
 import { Badge, riskTone } from '../components/Badge'
+import { AuditTimeline } from '../components/AuditTimeline'
 import type { AgentEvaluation, ExecutionResult, PolicyDecisionResult, RiskAnalysis } from '../types/recovery'
 import type { AuditEntry, RecoveryAttemptSummary, TransactionFullDetail } from '../types/transaction'
 
@@ -362,20 +363,7 @@ export function TransactionDetailPage() {
         }
       >
         {auditAction.error && <InlineError error={auditAction.error} onRetry={handleRefreshAudit} />}
-        <ol className="space-y-2 border-l border-[var(--color-border)] pl-4">
-          {auditEntries.map((entry) => (
-            <li key={entry.id} className="relative text-sm">
-              <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-[var(--color-accent)]" />
-              <div className="font-mono text-xs text-[var(--color-accent)]">{entry.eventType}</div>
-              <div className="text-[var(--color-text-secondary)]">
-                {entry.actor}
-                {entry.decision ? ` · ${entry.decision}` : ''} · {new Date(entry.timestamp).toLocaleTimeString()}
-              </div>
-              {entry.reason && <div className="mt-0.5 text-[var(--color-text-secondary)]">{entry.reason}</div>}
-            </li>
-          ))}
-        </ol>
-        {auditEntries.length === 0 && <p className="text-sm text-[var(--color-text-secondary)]">No audit events yet.</p>}
+        <AuditTimeline entries={auditEntries} />
       </Section>
     </div>
   )
