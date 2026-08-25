@@ -291,6 +291,7 @@ function PortfolioMetricsPanel({ metrics }: { metrics: RecoveryMetrics }) {
         {stat('Confirmed recoveries', String(metrics.confirmedRecoveryCount))}
         {stat('Confirmed revenue recovered', currency.format(metrics.confirmedRecoveredRevenue), 'success')}
         {stat('Pending confirmation', currency.format(metrics.pendingConfirmationAmount))}
+        {stat('Remaining at risk', currency.format(metrics.amountRemainingAtRisk))}
       </div>
     </div>
   )

@@ -32,14 +32,26 @@ public interface RecoveryAttemptRepository extends JpaRepository<RecoveryAttempt
 
     long countByStatus(RecoveryAttemptStatus status);
 
+    /**
+     * Same as {@link #countByStatus} but restricted to rows a real {@link
+     * com.recoverai.payment.PaymentGateway} call actually produced ({@code
+     * provider IS NOT NULL}) - this is the "provider executions" figure.
+     * {@link #countByStatus} alone would also count non-payment recorded
+     * actions (e.g. {@code SEND_RECOVERY_REMINDER}, which is never routed
+     * through a gateway and always has {@code provider=null}), which must
+     * never be counted as a provider execution.
+     */
+    long countByStatusAndProviderIsNotNull(RecoveryAttemptStatus status);
+
     @Query("SELECT COALESCE(SUM(ra.confirmedAmount), 0) FROM RecoveryAttempt ra WHERE ra.paymentConfirmationStatus = com.recoverai.domain.PaymentConfirmationStatus.CONFIRMED")
     BigDecimal sumConfirmedAmount();
 
-    /** Amount already sent to a provider (execution SUCCESS) but not yet proven paid by a webhook - the "money in flight" figure for {@code RecoveryMetricsResponse}. */
+    /** Amount already sent to a provider (execution SUCCESS) but not yet proven paid by a webhook - the "money in flight" figure for {@code RecoveryMetricsResponse}. Restricted to real gateway calls ({@code provider IS NOT NULL}) so a recorded non-payment action (e.g. a reminder) never inflates this with its transaction's full amount. */
     @Query("""
             SELECT COALESCE(SUM(ra.amount), 0) FROM RecoveryAttempt ra
             WHERE ra.status = com.recoverai.domain.RecoveryAttemptStatus.SUCCESS
               AND ra.paymentConfirmationStatus = com.recoverai.domain.PaymentConfirmationStatus.NOT_CONFIRMED
+              AND ra.provider IS NOT NULL
             """)
     BigDecimal sumPendingConfirmationAmount();
 
@@ -84,4 +96,24 @@ public interface RecoveryAttemptRepository extends JpaRepository<RecoveryAttempt
         RecoveryAttemptStatus getStatus();
         Long getTotal();
     }
+
+    /**
+     * Eligible attempts for the judge-safe test-confirmation demo path
+     * (P0.4, {@code DemoConfirmationService}): a real mock-provider
+     * execution that succeeded, has a provider reference to correlate a
+     * webhook against, and has not already been confirmed/rejected.
+     * Restricted to {@code provider = 'mock'} specifically (never {@code
+     * 'razorpay'}) so this path can never be used to fabricate a
+     * confirmation for an attempt that went through a real gateway call.
+     */
+    @Query("""
+            SELECT ra FROM RecoveryAttempt ra
+            WHERE ra.transaction.id = :transactionId
+              AND ra.status = com.recoverai.domain.RecoveryAttemptStatus.SUCCESS
+              AND ra.provider = 'mock'
+              AND ra.providerReference IS NOT NULL
+              AND ra.paymentConfirmationStatus = com.recoverai.domain.PaymentConfirmationStatus.NOT_CONFIRMED
+            ORDER BY ra.attemptNumber DESC
+            """)
+    List<RecoveryAttempt> findEligibleForTestConfirmation(@Param("transactionId") UUID transactionId);
 }

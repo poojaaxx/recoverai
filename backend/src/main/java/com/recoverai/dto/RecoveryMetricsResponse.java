@@ -15,6 +15,16 @@ import java.math.BigDecimal;
  * optimistic figure. With no confirmed payments (true for every
  * environment today unless a real Razorpay Test Mode webhook has actually
  * been received), it is honestly {@code 0.00}.
+ * <p>
+ * <b>{@code amountRemainingAtRisk}</b> = {@code max(0, totalRevenueAtRisk -
+ * confirmedRecoveredRevenue)} - the portion of currently at-risk revenue
+ * that has not (yet) been confirmed recovered. It never double-counts:
+ * {@code totalRevenueAtRisk} already excludes resolved transactions (see
+ * {@code RevenueRiskService.correctStaleResolvedRiskRows}), so this is
+ * simply that figure net of whatever has since been genuinely confirmed.
+ * Floored at zero rather than allowed to go negative, since a transient
+ * timing gap between a webhook confirming a payment and the next risk
+ * re-analysis could otherwise produce a nonsensical negative "risk".
  */
 public record RecoveryMetricsResponse(
         BigDecimal totalRevenueAtRisk,
@@ -27,6 +37,7 @@ public record RecoveryMetricsResponse(
         BigDecimal executionSuccessRate,
         BigDecimal confirmationRate,
         BigDecimal pendingConfirmationAmount,
+        BigDecimal amountRemainingAtRisk,
         long transactionsRecovered,
         long transactionsEscalated,
         long transactionsStopped

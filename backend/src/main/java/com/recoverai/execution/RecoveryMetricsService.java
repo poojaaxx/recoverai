@@ -42,10 +42,12 @@ public class RecoveryMetricsService {
         var riskMetrics = revenueRiskService.getMetrics();
 
         long totalAttempts = recoveryAttemptRepository.count();
-        long successfulExecutions = recoveryAttemptRepository.countByStatus(RecoveryAttemptStatus.SUCCESS);
+        long successfulExecutions = recoveryAttemptRepository.countByStatusAndProviderIsNotNull(RecoveryAttemptStatus.SUCCESS);
         long confirmedRecoveries = recoveryAttemptRepository.countByPaymentConfirmationStatus(PaymentConfirmationStatus.CONFIRMED);
         BigDecimal confirmedRevenue = zeroIfNull(recoveryAttemptRepository.sumConfirmedAmount());
         BigDecimal pendingConfirmation = zeroIfNull(recoveryAttemptRepository.sumPendingConfirmationAmount());
+        BigDecimal remainingAtRisk = riskMetrics.revenueAtRisk().subtract(confirmedRevenue).max(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
 
         return new RecoveryMetricsResponse(
                 riskMetrics.revenueAtRisk(),
@@ -58,6 +60,7 @@ public class RecoveryMetricsService {
                 rate(successfulExecutions, totalAttempts),
                 rate(confirmedRecoveries, successfulExecutions),
                 pendingConfirmation,
+                remainingAtRisk,
                 transactionRepository.countByStatus(TransactionStatus.RECOVERED),
                 transactionRepository.countByStatus(TransactionStatus.ESCALATED),
                 transactionRepository.countByStatus(TransactionStatus.STOPPED)

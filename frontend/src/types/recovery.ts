@@ -68,6 +68,25 @@ export interface AiRecommendation {
   providerAvailable: boolean
 }
 
+/**
+ * P0.3 — honest, judge-facing labels for the AI provider that actually
+ * produced a recommendation. `mock` is this project's deterministic,
+ * offline decision engine (the default everywhere, including this
+ * deployment) — it is never presented as a live LLM. `anthropic` is a real
+ * Claude API integration, only active when explicitly configured with
+ * credentials.
+ */
+export function aiProviderLabel(provider: string): string {
+  switch (provider) {
+    case 'mock':
+      return 'Deterministic AI simulation — no external LLM configured'
+    case 'anthropic':
+      return 'Anthropic Claude'
+    default:
+      return provider
+  }
+}
+
 /** Response of `POST /api/recovery-agent/evaluate/{id}` — the AI's recommendation AND the policy's decision on it, from one real backend call. */
 export interface AgentEvaluation {
   transactionId: string
@@ -125,6 +144,17 @@ export interface RiskMetrics {
 
 export type AuditEntry = AuditTimelineEntry
 
+/** Response of `POST /api/demo/recovery/confirm-test-payment/{id}` (P0.4). `label` always states this is a TEST/SIMULATION, never a real Razorpay payment — display it verbatim, never abbreviate it away. */
+export interface TestPaymentConfirmation {
+  label: string
+  outcome: string
+  reason: string
+  recoveryAttemptId: string | null
+  transactionId: string
+  confirmedAmount: number | null
+  confirmedCurrency: string | null
+}
+
 /** Response of `POST /api/revenue-risk/analyze-all`. */
 export interface BatchRiskAnalysisResult {
   transactionsAnalyzed: number
@@ -153,6 +183,7 @@ export interface RecoveryMetrics {
   executionSuccessRate: number
   confirmationRate: number
   pendingConfirmationAmount: number
+  amountRemainingAtRisk: number
   transactionsRecovered: number
   transactionsEscalated: number
   transactionsStopped: number
