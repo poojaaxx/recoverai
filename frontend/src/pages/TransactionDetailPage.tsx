@@ -5,6 +5,7 @@ import { useAsyncAction } from '../hooks/useAsyncAction'
 import { Badge, riskTone } from '../components/Badge'
 import { AuditTimeline } from '../components/AuditTimeline'
 import type { AgentEvaluation, ExecutionResult, PolicyDecisionResult, RiskAnalysis } from '../types/recovery'
+import { aiProviderLabel } from '../types/recovery'
 import type { AuditEntry, RecoveryAttemptSummary, TransactionFullDetail } from '../types/transaction'
 
 const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 })
@@ -289,7 +290,7 @@ export function TransactionDetailPage() {
           <dl className="space-y-1 text-sm">
             <Row label="Recommended action">{agentEvaluation.aiRecommendation.action}</Row>
             <Row label="Confidence">{percent.format(agentEvaluation.aiRecommendation.confidence)}</Row>
-            <Row label="Provider">{agentEvaluation.aiRecommendation.provider}</Row>
+            <Row label="AI provider">{aiProviderLabel(agentEvaluation.aiRecommendation.provider)}</Row>
           </dl>
         ) : (
           <p className="text-sm text-[var(--color-text-secondary)]">No recommendation requested yet.</p>

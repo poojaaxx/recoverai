@@ -12,6 +12,7 @@ import type {
   RecoveryMetrics,
   RiskAnalysis,
   RiskMetrics,
+  TestPaymentConfirmation,
   TransactionDetail,
 } from '../types/recovery'
 import type { TransactionFullDetail, TransactionListFilters, TransactionListPage } from '../types/transaction'
@@ -140,6 +141,10 @@ export const api = {
   demoSummary: () => apiClient.get<RecoveryDemoSummary>('/api/demo/recovery'),
   demoScenario: (externalTransactionId: string) =>
     apiClient.get<RecoveryDemoScenario>(`/api/demo/recovery/${externalTransactionId}`),
+
+  /** P0.4 — drives a real, signed, self-issued webhook through the actual confirmation pipeline for a transaction with an already-successful mock execution. Always TEST/SIMULATION, never real Razorpay money. MERCHANT_ADMIN only. */
+  confirmTestPayment: (transactionId: string) =>
+    apiClient.post<TestPaymentConfirmation>(`/api/demo/recovery/confirm-test-payment/${transactionId}`),
 
   transaction: (transactionId: string) => apiClient.get<TransactionDetail>(`/api/transactions/${transactionId}`),
 

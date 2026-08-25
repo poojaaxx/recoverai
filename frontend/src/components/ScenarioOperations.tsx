@@ -8,8 +8,10 @@ import type {
   ExecutionResult,
   PolicyDecisionResult,
   RiskAnalysis,
+  TestPaymentConfirmation,
   TransactionDetail,
 } from '../types/recovery'
+import { aiProviderLabel } from '../types/recovery'
 import { Badge, riskTone } from './Badge'
 import { AuditTimeline } from './AuditTimeline'
 
@@ -36,6 +38,7 @@ interface OperationalState {
   transaction: TransactionDetail | null
   guidedStage: GuidedStage
   guidedMessage: string | null
+  testConfirmation: TestPaymentConfirmation | null
 }
 
 function freshState(transactionId: string): OperationalState {
@@ -49,6 +52,7 @@ function freshState(transactionId: string): OperationalState {
     transaction: null,
     guidedStage: 'idle',
     guidedMessage: null,
+    testConfirmation: null,
   }
 }
 
@@ -239,6 +243,9 @@ export function ScenarioOperations({
   )
   const executeAction = useAsyncAction(() => api.executeRecovery(scenario.transactionId).then((r) => r.data))
   const auditAction = useAsyncAction(() => api.auditTimeline(scenario.transactionId).then((r) => r.data))
+  const confirmTestPaymentAction = useAsyncAction(() =>
+    api.confirmTestPayment(scenario.transactionId).then((r) => r.data),
+  )
   const transactionAction = useAsyncAction(() => api.transaction(scenario.transactionId).then((r) => r.data))
 
   async function handleAnalyzeRisk() {
@@ -264,6 +271,14 @@ export function ScenarioOperations({
   async function handleRefreshTransaction() {
     const result = await transactionAction.run()
     if (result) setOp((prev) => ({ ...prev, transaction: result }))
+  }
+
+  async function handleConfirmTestPayment() {
+    const result = await confirmTestPaymentAction.run()
+    if (!result) return
+    setOp((prev) => ({ ...prev, testConfirmation: result }))
+    await Promise.all([handleRefreshTransaction(), handleRefreshAudit()])
+    onDashboardRefreshNeeded()
   }
 
   async function handleExecute() {
@@ -372,7 +387,9 @@ export function ScenarioOperations({
         <dl className="mt-2 space-y-1 text-sm">
           <Row label="Recommended action">{recommendedAction ?? '—'}</Row>
           <Row label="Confidence">{aiConfidence != null ? percent.format(aiConfidence) : '—'}</Row>
-          {aiProvider && <Row label="Provider / model">{aiModel ? `${aiProvider} (${aiModel})` : aiProvider}</Row>}
+          {aiProvider && (
+            <Row label="AI provider">{aiModel ? `${aiProviderLabel(aiProvider)} (${aiModel})` : aiProviderLabel(aiProvider)}</Row>
+          )}
           {expectedRecoveryValue != null && <Row label="Expected recovery value">{currency.format(expectedRecoveryValue)}</Row>}
         </dl>
         <p className="mt-2 text-sm text-[var(--color-text-secondary)]">{aiRationale}</p>
@@ -448,7 +465,7 @@ export function ScenarioOperations({
           <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] p-3">
             <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">Execution</div>
             <dl className="mt-1.5 space-y-1 text-sm">
-              <Row label="Status">{executed ? (executionStatus ?? 'SUCCESS') : 'Not executed'}</Row>
+              <Row label="Status">{executionStatus ?? (executed ? 'SUCCESS' : 'Not executed')}</Row>
               <Row label="Provider">{provider ?? '—'}</Row>
               <Row label="Failure code">{failureCode ?? '—'}</Row>
               <Row label="Duplicate/replay">{duplicate ? 'Yes' : 'No'}</Row>
@@ -479,14 +496,38 @@ export function ScenarioOperations({
         {paymentConfirmationStatus === 'CONFIRMED' ? (
           <div className="mt-3 rounded-lg border border-[var(--color-success)] bg-[color-mix(in_srgb,var(--color-success)_10%,transparent)] p-3 text-sm text-[var(--color-success)]">
             ✓ Confirmed Revenue Recovered — {currency.format(amountRecovered)}
+            {op.testConfirmation && (
+              <div className="mt-1 text-xs font-semibold uppercase tracking-wide">{op.testConfirmation.label}</div>
+            )}
           </div>
         ) : (
           <div className="mt-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] p-3 text-sm text-[var(--color-text-secondary)]">
-            {op.execution
-              ? op.execution.executed
-                ? 'The provider call ran — this confirms execution, not confirmed payment. amountRecovered stays ₹0.00 until a real, verified provider webhook confirms it.'
-                : (op.execution.executionNote ?? scenario.safetyExplanation)
-              : scenario.safetyExplanation}
+            <p className="font-medium text-[var(--color-text-primary)]">Provider execution ≠ confirmed payment.</p>
+            <p className="mt-1">
+              {op.execution
+                ? op.execution.executed
+                  ? 'The provider call ran — this confirms execution, not confirmed payment. amountRecovered stays ₹0.00 until a real, verified provider webhook confirms it.'
+                  : (op.execution.executionNote ?? scenario.safetyExplanation)
+                : scenario.safetyExplanation}
+            </p>
+            {executed && provider === 'mock' && (
+              <div className="mt-3">
+                <ActionButton
+                  onClick={handleConfirmTestPayment}
+                  loading={confirmTestPaymentAction.loading}
+                  variant="secondary"
+                >
+                  Confirm via signed webhook (TEST/SIMULATION)
+                </ActionButton>
+                <p className="mt-1.5 text-xs text-[var(--color-text-secondary)]">
+                  Drives a real, signed payload through the actual PaymentConfirmationService pipeline - never a
+                  real Razorpay payment. Requires RAZORPAY_WEBHOOK_SECRET to be configured in this environment.
+                </p>
+                {confirmTestPaymentAction.error && (
+                  <InlineError error={confirmTestPaymentAction.error} onRetry={handleConfirmTestPayment} />
+                )}
+              </div>
+            )}
           </div>
         )}
       </section>
