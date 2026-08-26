@@ -333,6 +333,29 @@ demo-scenario outcomes. Architecturally relevant points not covered there:
   RecoveryPolicyService` rather than a special "AI failed" code path, so
   the failure mode is exercised by the same, already-tested policy logic
   every other `ESCALATE` recommendation uses.
+- **Anthropic response schema is validated the same way a mock response
+  would be.** `AnthropicAIRecoveryProvider.parseRecommendation()` never
+  trusts the model's JSON directly — an unsupported `action`/`
+  interventionType`/`urgency` value fails enum parsing and is wrapped as `
+  AIProviderException`, which `RecoveryAgentService` always catches and
+  turns into the same safe `ESCALATE` fallback used for any other provider
+  failure. See `AnthropicAIRecoveryProviderTest` for direct coverage of
+  malformed JSON, an empty content array, an unsupported action, and a
+  non-2xx/network failure — none of these reach the policy engine as a raw
+  exception.
+- **A real bug this pass found and fixed:** the provider built its own
+  `new ObjectMapper()` with no modules registered, while `
+  RecoveryAgentContext` always carries non-null `Instant` fields (`
+  createdAt`, sometimes `lastAttemptAt`). Serializing that context to send
+  to Claude threw `InvalidDefinitionException` immediately — meaning a real
+  Anthropic call could never have succeeded, even with a valid API key,
+  regardless of what the model would have returned. Fixed by registering `
+  JavaTimeModule` on that local mapper (the Spring-managed `ObjectMapper`
+  bean elsewhere in the app gets this from autoconfiguration; a manually
+  constructed instance does not). Caught by `
+  AnthropicAIRecoveryProviderTest`, which exercises this provider's HTTP
+  and parsing logic directly with a fake `WebClient` `ExchangeFunction` —
+  no other test in the suite had ever called `buildUserContent` for real.
 - **Context building has no compile-time dependency on Phase 3's
   internals.** `RecoveryAgentService.resolveFailureCategory()` and `
   MockAIRecoveryProvider`'s Bayesian-smoothed probability estimate are

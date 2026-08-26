@@ -33,7 +33,9 @@ Every recommendation still has to pass through the policy engine before anything
 
 So the AI is useful for the "what should we try" judgment call, and the policy engine is the one thing that gets to say yes to actually spending a provider call on it. I kept it this way on purpose — authorization needs to be predictable and explainable, and an LLM call isn't a good fit for that.
 
-Worth being precise about which "AI" is actually running: by default (including this deployment) it's a deterministic decision engine, not a live model call — the UI says so explicitly ("Deterministic AI simulation — no external LLM configured") rather than implying more than is true. There's also a real Anthropic Claude integration behind the same interface, genuinely wired to make an API call, that activates if you configure an API key — it's just never had one in this environment, so the mock path is what everyone actually sees today.
+Worth being precise about which "AI" is actually running: by default (including this deployment) it's a deterministic decision engine, not a live model call — the UI says so explicitly ("Deterministic AI simulation — no external LLM configured") rather than implying more than is true. There's also a real Anthropic Claude integration behind the same interface, genuinely wired to make an API call, that activates only when you set `AI_PROVIDER=anthropic` and a real `ANTHROPIC_API_KEY` (see `.env.example`) — it's just never had one in this environment, so the mock path is what everyone actually sees today. When it is active, the same UI switches to saying "Anthropic Claude" instead — never both at once, and never implying a live call happened when it didn't. The key itself is read only from that server-side environment variable: it's never logged, never returned by any API response, never stored in the database, and never reachable from the frontend bundle (Vite only ever exposes `VITE_API_BASE_URL`, nothing AI-related).
+
+I found and fixed a real bug in this integration while adding direct test coverage for it: the Anthropic provider built its own JSON mapper without the module Java's `Instant` type needs, so serializing the recovery context to send to Claude would have thrown before any network request was made — a real API key would never actually have worked. Nobody had ever exercised that code path end-to-end, mock-vs-live tests only ever went through the mock provider. Fixed by registering the missing module; now covered by a dedicated test class that drives the provider's real HTTP/parsing logic against a fake `WebClient` (no network, no key needed) — malformed JSON, an empty response, an unsupported action, a non-2xx status, and a network failure all correctly fail closed to the same policy-gated fallback path.
 
 ## The recovery flow
 
@@ -106,7 +108,7 @@ If a transaction is escalated, its detail page shows an "Escalation review" pane
 
 ## Build quality
 
-347 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
+359 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
 
 ## A failure I actually hit
 
