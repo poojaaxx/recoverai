@@ -468,6 +468,36 @@ class RecoveryAgentServiceTest {
         assertThat(response.requiresHumanApproval()).isTrue();
     }
 
+    @Test
+    void anthropicFlavoredRecommendation_stillOverriddenByPolicy_regardlessOfProviderIdentity() {
+        // Phase 14 — the policy override above is proven with a generic stub; this repeats it
+        // with a recommendation that specifically carries provider="anthropic" (the exact shape
+        // AnthropicAIRecoveryProvider would return), to make explicit that the AI-vs-policy
+        // authorization boundary is provider-agnostic — a live Claude call gets no more trust
+        // than the mock provider does.
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("47500.00"),
+                FailureCategory.INSUFFICIENT_FUNDS, 1);
+
+        AIRecoveryProvider anthropicFlavored = context -> new RecoveryRecommendation(
+                context.transaction().transactionId(), RecoveryAction.RETRY_PAYMENT, new BigDecimal("0.93"),
+                "Claude recommends retrying this transaction.", InterventionType.RETRY, new BigDecimal("47500"),
+                Urgency.MEDIUM, "anthropic", "claude-sonnet-5");
+
+        long attemptsBefore = recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId()).size();
+
+        RecoveryAgentEvaluationResponse response = agentWithStubProvider(anthropicFlavored).evaluate(txn.getId());
+
+        assertThat(response.aiRecommendation().action()).isEqualTo(RecoveryAction.RETRY_PAYMENT);
+        assertThat(response.aiRecommendation().provider()).isEqualTo("anthropic");
+        assertThat(response.policyDecision().decision()).isEqualTo(PolicyDecision.ESCALATE);
+        assertThat(response.finalAction()).isEqualTo(RecoveryAction.ESCALATE);
+        assertThat(response.requiresHumanApproval()).isTrue();
+
+        long attemptsAfter = recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId()).size();
+        assertThat(attemptsAfter).isEqualTo(attemptsBefore);
+    }
+
     // ---------------------------------------------------------------- 17. mismatched transactionId (Phase 10)
 
     @Test
