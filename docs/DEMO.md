@@ -161,12 +161,17 @@ the safety architecture:
   CONFIRMATION`, never `SUCCESS` — the provider call ran, but no verified
   webhook has confirmed the customer actually paid (and none ever will,
   under the default mock provider).
-- **`demo-high-value`** — AI recommends `RETRY_PAYMENT`, but the amount
-  (₹47,500) exceeds the autonomous recovery limit, so policy overrides to
-  `ESCALATE` (`requiresHumanApproval=true`) → not executed, zero gateway
-  calls. This is the scenario that most directly demonstrates **"AI
-  recommends. Policy authorizes."** — the recommendation and the final
-  decision are shown side by side, and they differ.
+- **`demo-high-value`** — the AI recommends a customer-facing action
+  (under the deterministic mock provider, `RETRY_PAYMENT`; the live Groq
+  deployment currently recommends `CREATE_PAYMENT_LINK`, reasoning about
+  the insufficient-funds failure code — the exact action depends on which
+  provider is configured, since a real model call is genuinely free to
+  choose), but the amount (₹47,500) exceeds the autonomous recovery limit
+  regardless, so policy overrides to `ESCALATE`
+  (`requiresHumanApproval=true`) → not executed, zero gateway calls. This
+  is the scenario that most directly demonstrates **"AI recommends.
+  Policy authorizes."** — the recommendation and the final decision are
+  shown side by side, and they differ.
 - **`demo-repeated-failure`** — already `STOPPED` after exhausting its
   automated retry budget → policy `STOP` again → not executed. Demonstrates
   bounded automation: the system does not retry forever.
