@@ -21,16 +21,28 @@ import java.math.BigDecimal;
 @Setter
 public class RecoveryAgentProperties {
 
-    /** {@code mock} (default) or {@code anthropic}. */
+    /** {@code mock} (default), {@code anthropic}, or {@code groq}. */
     private String provider = "mock";
 
     private Anthropic anthropic = new Anthropic();
+    private Groq groq = new Groq();
 
     @Getter
     @Setter
     public static class Anthropic {
         private String apiKey = "";
         private String model = "claude-sonnet-5";
+        private BigDecimal temperature = new BigDecimal("0.2");
+        private int timeoutSeconds = 15;
+        private int maxTokens = 1024;
+    }
+
+    /** Groq's OpenAI-compatible chat/completions API - same shape as {@link Anthropic}, different transport. */
+    @Getter
+    @Setter
+    public static class Groq {
+        private String apiKey = "";
+        private String model = "llama-3.3-70b-versatile";
         private BigDecimal temperature = new BigDecimal("0.2");
         private int timeoutSeconds = 15;
         private int maxTokens = 1024;

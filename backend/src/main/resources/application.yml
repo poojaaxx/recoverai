@@ -105,13 +105,19 @@ recoverai:
   # "mock" - deterministic, offline, no API key required - so the app builds,
   # runs, and tests fully without AI credentials. See docs/ARCHITECTURE.md.
   ai:
-    provider: ${AI_PROVIDER:mock} # mock | anthropic
+    provider: ${AI_PROVIDER:mock} # mock | anthropic | groq
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:}
       model: ${ANTHROPIC_MODEL:claude-sonnet-5}
       temperature: ${ANTHROPIC_TEMPERATURE:0.2}
       timeout-seconds: ${ANTHROPIC_TIMEOUT_SECONDS:15}
       max-tokens: ${ANTHROPIC_MAX_TOKENS:1024}
+    groq:
+      api-key: ${GROQ_API_KEY:}
+      model: ${GROQ_MODEL:llama-3.3-70b-versatile}
+      temperature: ${GROQ_TEMPERATURE:0.2}
+      timeout-seconds: ${GROQ_TIMEOUT_SECONDS:15}
+      max-tokens: ${GROQ_MAX_TOKENS:1024}
 
   # Phase 6 - Razorpay Integration / Payment Adapter. PaymentGateway is a
   # pure execution boundary - it never decides whether an action is safe
