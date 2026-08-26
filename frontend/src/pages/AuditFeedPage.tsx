@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, toApiError, type ApiError } from '../lib/api'
-import { humanizeActor, humanizeEventType } from '../components/AuditTimeline'
+import { humanizeActor, humanizeEventType, stageOf, STAGE_LABELS, STAGE_TONE } from '../components/AuditTimeline'
+import { Badge } from '../components/Badge'
 import type { GlobalAuditPage } from '../types/recovery'
 
 /** P1.4 — the portfolio-wide "everything the system has decided and done" feed, so a judge doesn't have to already know a specific transaction id to see the audit trail is real and complete. */
@@ -99,6 +100,7 @@ export function AuditFeedPage() {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-[var(--color-border)] text-xs uppercase tracking-wide text-[var(--color-text-secondary)]">
+                  <th className="px-4 py-2">Stage</th>
                   <th className="px-4 py-2">Event</th>
                   <th className="px-4 py-2">Actor</th>
                   <th className="px-4 py-2">Decision</th>
@@ -107,8 +109,13 @@ export function AuditFeedPage() {
                 </tr>
               </thead>
               <tbody>
-                {page.content.map((entry) => (
+                {page.content.map((entry) => {
+                  const stage = stageOf(entry.eventType)
+                  return (
                   <tr key={entry.id} className="border-b border-[var(--color-border)] last:border-0">
+                    <td className="px-4 py-2">
+                      {STAGE_LABELS[stage] ? <Badge tone={STAGE_TONE[stage]}>{STAGE_LABELS[stage]}</Badge> : <span className="text-[var(--color-text-secondary)]">—</span>}
+                    </td>
                     <td className="px-4 py-2">
                       <div className="text-[var(--color-text-primary)]">{humanizeEventType(entry.eventType)}</div>
                       <div className="font-mono text-[10px] text-[var(--color-text-secondary)]">{entry.eventType}</div>
@@ -127,10 +134,11 @@ export function AuditFeedPage() {
                       {new Date(entry.timestamp).toLocaleString()}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
                 {page.content.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-[var(--color-text-secondary)]">
+                    <td colSpan={6} className="px-4 py-6 text-center text-[var(--color-text-secondary)]">
                       No audit events match this filter.
                     </td>
                   </tr>

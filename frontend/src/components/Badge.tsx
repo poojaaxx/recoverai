@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-type BadgeTone = 'success' | 'warning' | 'danger' | 'accent' | 'neutral'
+export type BadgeTone = 'success' | 'warning' | 'danger' | 'accent' | 'neutral'
 
 const toneClasses: Record<BadgeTone, string> = {
   success: 'bg-[color-mix(in_srgb,var(--color-success)_16%,transparent)] text-[var(--color-success)] border-[color-mix(in_srgb,var(--color-success)_40%,transparent)]',
