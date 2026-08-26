@@ -362,7 +362,7 @@ function ObservabilityPanel({ observability }: { observability: ObservabilityMet
       </p>
       <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1.5 text-xs">
         <span className="text-[var(--color-text-secondary)]">Active AI provider:</span>
-        <span className="font-medium text-[var(--color-text-primary)]">{aiProviderLabel(observability.aiProviderMode)}</span>
+        <span className="font-medium text-[var(--color-text-primary)]">{aiProviderLabel(observability.aiProviderMode, observability.aiModel)}</span>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         {stat('Policy: ALLOW', policyDecisions.allow)}

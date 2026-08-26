@@ -388,7 +388,7 @@ export function ScenarioOperations({
           <Row label="Recommended action">{recommendedAction ?? '—'}</Row>
           <Row label="Confidence">{aiConfidence != null ? percent.format(aiConfidence) : '—'}</Row>
           {aiProvider && (
-            <Row label="AI provider">{aiModel ? `${aiProviderLabel(aiProvider)} (${aiModel})` : aiProviderLabel(aiProvider)}</Row>
+            <Row label="AI provider">{aiProviderLabel(aiProvider, aiModel)}</Row>
           )}
           {expectedRecoveryValue != null && <Row label="Expected recovery value">{currency.format(expectedRecoveryValue)}</Row>}
         </dl>

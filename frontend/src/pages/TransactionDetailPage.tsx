@@ -316,7 +316,7 @@ export function TransactionDetailPage() {
           <dl className="space-y-1 text-sm">
             <Row label="Recommended action">{agentEvaluation.aiRecommendation.action}</Row>
             <Row label="Confidence">{percent.format(agentEvaluation.aiRecommendation.confidence)}</Row>
-            <Row label="AI provider">{aiProviderLabel(agentEvaluation.aiRecommendation.provider)}</Row>
+            <Row label="AI provider">{aiProviderLabel(agentEvaluation.aiRecommendation.provider, agentEvaluation.aiRecommendation.model)}</Row>
           </dl>
         ) : (
           <p className="text-sm text-[var(--color-text-secondary)]">No recommendation requested yet.</p>

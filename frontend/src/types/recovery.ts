@@ -72,16 +72,28 @@ export interface AiRecommendation {
  * P0.3 — honest, judge-facing labels for the AI provider that actually
  * produced a recommendation. `mock` is this project's deterministic,
  * offline decision engine (the default everywhere, including this
- * deployment) — it is never presented as a live LLM. `anthropic` is a real
- * Claude API integration, only active when explicitly configured with
- * credentials.
+ * deployment) — it is never presented as a live LLM. `anthropic` and
+ * `groq` are real, live LLM integrations, only active when explicitly
+ * configured with credentials. `fallback` is what a per-recommendation
+ * `provider` field reports when the configured provider's call actually
+ * failed (missing key, network error, timeout, malformed output) and
+ * `RecoveryAgentService` substituted its safe ESCALATE default — this is
+ * intentionally a distinct label from the provider name itself, so a
+ * failed Groq/Anthropic call is never shown as if it had produced a real
+ * recommendation. Pass `model` when known (e.g. from `ObservabilityMetrics.
+ * aiModel` or a recommendation's own `model` field) to name exactly which
+ * model is configured/was used.
  */
-export function aiProviderLabel(provider: string): string {
+export function aiProviderLabel(provider: string, model?: string | null): string {
   switch (provider) {
     case 'mock':
       return 'Deterministic AI simulation — no external LLM configured'
     case 'anthropic':
-      return 'Anthropic Claude'
+      return model ? `Anthropic Claude — ${model}` : 'Anthropic Claude'
+    case 'groq':
+      return model ? `Groq — ${model}` : 'Groq'
+    case 'fallback':
+      return 'AI unavailable — escalated automatically'
     default:
       return provider
   }
