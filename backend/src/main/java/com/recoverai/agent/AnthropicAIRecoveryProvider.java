@@ -2,6 +2,8 @@ package com.recoverai.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.recoverai.config.RecoveryAgentProperties;
 import com.recoverai.domain.InterventionType;
 import com.recoverai.domain.RecoveryAction;
@@ -20,15 +22,19 @@ import java.util.Map;
  * com.recoverai.policy.RecoveryPolicyService} remains the sole
  * authorization boundary regardless of what this provider returns.
  * <p>
- * <b>Unverified in this environment</b> - no Anthropic API key was
- * available while building this project, so this class has never been
- * exercised against the real API (see the Phase 5 report's "Known
- * limitations"). It is written defensively for exactly that reason: any
- * network error, non-2xx response, timeout, or response that does not
- * parse into the exact recommendation schema throws {@link
- * AIProviderException}, which {@code RecoveryAgentService} always catches
- * and turns into a safe fallback recommendation - a bug here degrades to
- * "AI unavailable," it cannot break the endpoint or bypass policy.
+ * <b>Unverified against the live API</b> - no Anthropic API key has been
+ * available in any environment this project has run in, so a real request
+ * has never been made (see the Phase 5 report's "Known limitations"). The
+ * HTTP call and response-parsing logic here are directly unit-tested with
+ * a fake {@link WebClient} {@code ExchangeFunction} instead (see {@code
+ * AnthropicAIRecoveryProviderTest}) - well-formed and malformed responses,
+ * missing/blank key, non-2xx status, and network failure. It is written
+ * defensively for the same reason it's untested live: any network error,
+ * non-2xx response, timeout, or response that does not parse into the
+ * exact recommendation schema throws {@link AIProviderException}, which
+ * {@code RecoveryAgentService} always catches and turns into a safe
+ * fallback recommendation - a bug here degrades to "AI unavailable," it
+ * cannot break the endpoint or bypass policy.
  */
 public class AnthropicAIRecoveryProvider implements AIRecoveryProvider {
 
@@ -70,7 +76,18 @@ public class AnthropicAIRecoveryProvider implements AIRecoveryProvider {
 
     private final RecoveryAgentProperties properties;
     private final WebClient webClient;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    /**
+     * A plain {@code new ObjectMapper()} has no modules registered - unlike
+     * the Spring-managed bean the rest of the app uses, which
+     * autoconfiguration wires with JSR-310 support. {@link
+     * RecoveryAgentContext} always carries non-null {@code Instant} fields
+     * ({@code createdAt}, sometimes {@code lastAttemptAt}), so without this
+     * registration every real call would fail serialization before any
+     * network request was even made.
+     */
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     public AnthropicAIRecoveryProvider(RecoveryAgentProperties properties, WebClient webClient) {
         this.properties = properties;
