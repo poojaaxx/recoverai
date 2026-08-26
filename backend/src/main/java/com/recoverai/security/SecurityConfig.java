@@ -47,14 +47,17 @@ import java.util.List;
  * <p>
  * Everything else under {@code /api/**} requires a valid bearer token.
  * {@code POST /api/recovery/{id}/execute}, {@code .../approve}, {@code
- * .../reject}, {@code POST /api/recovery/batch/execute}, and {@code POST
- * /api/demo/recovery/confirm-test-payment/{id}}
+ * .../reject}, {@code POST /api/recovery/batch/execute}, {@code POST
+ * /api/demo/recovery/confirm-test-payment/{id}}, and {@code POST
+ * /api/demo/recovery/reset}
  * all additionally require the {@code MERCHANT_ADMIN} role - every one is a
  * write action with a real effect on transaction/attempt state (execute can
  * cause a real or simulated payment-gateway call; approve re-runs the full
  * safety pipeline and may too; reject and confirm-test-payment mutate audit
- * /confirmation state). Every read/analyze/recommend endpoint is available
- * to both {@code MERCHANT_ADMIN} and {@code OPERATOR}.
+ * /confirmation state; reset wipes and regenerates the entire demo dataset -
+ * see {@code DemoResetService} for why it is never reachable outside a demo
+ * environment regardless of role). Every read/analyze/recommend endpoint is
+ * available to both {@code MERCHANT_ADMIN} and {@code OPERATOR}.
  */
 @Configuration
 @EnableWebSecurity
@@ -98,6 +101,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/approve").hasRole("MERCHANT_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/reject").hasRole("MERCHANT_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/demo/recovery/confirm-test-payment/*").hasRole("MERCHANT_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/demo/recovery/reset").hasRole("MERCHANT_ADMIN")
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtService, appUserRepository), UsernamePasswordAuthenticationFilter.class);
         return http.build();

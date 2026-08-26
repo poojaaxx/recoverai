@@ -654,6 +654,24 @@ webhook would hit. Requires `DEMO_SEED_ENABLED=true`,
 confirmed) — `409 Conflict` otherwise, with a plain-language reason.
 Response always includes `"label"` stating this is a TEST/SIMULATION.
 
+#### `POST /api/demo/recovery/reset` (`MERCHANT_ADMIN` only)
+
+Development/demo-only. Restores the entire seeded demo dataset —
+transactions, customers, revenue-risk rows, recovery attempts, webhook
+events, and audit records — to its original deterministic state, via the
+exact same wipe-and-regenerate routine `DemoDataSeeder` already runs once
+at startup. Useful after a session of batch executions, webhook
+confirmations, or other portfolio-wide testing has drifted the dataset away
+from its starting shape. Never touches login accounts (`AppUser` rows), so
+resetting can never log out the admin who called it. Requires
+`DEMO_SEED_ENABLED=true` and `RAZORPAY_ENABLED=false` — `409 Conflict`
+otherwise. See `DemoResetService`.
+
+**Response `200 OK`** — the same `SeedReport` shape logged at startup
+(`totalTransactions`, `countsByStatus`, `recoveryAttemptCount`,
+`auditLogCount`, `demoTransactionIds`, etc.), read back from what was
+actually persisted, not hardcoded.
+
 ### Failure-Recovery Demo (Phase 8)
 
 A read/aggregation layer over the real Phase 3-7 pipeline, run against the
@@ -663,8 +681,9 @@ logic. See
 for the full design and the exact per-scenario expected outcomes.
 Intentionally `GET`, even though calling it re-runs the real pipeline
 (risk re-analysis, and `RecoveryExecutionService.execute()` exactly as
-Phase 7's own endpoint would) — see the README for why no reset endpoint
-is needed for repeatability.
+Phase 7's own endpoint would) — repeated calls to the 5 named scenarios
+stay safe on their own (see the README); `POST /api/demo/recovery/reset`
+above exists for restoring the wider dataset.
 
 #### `GET /api/demo/recovery`
 
@@ -782,6 +801,39 @@ See `com.recoverai.webhook.PaymentConfirmationService` and
 [docs/ARCHITECTURE.md § Payment Confirmation](ARCHITECTURE.md) for the full
 design — signature verification, correlation, amount/currency
 verification, and idempotency.
+
+#### Configuring real Razorpay Test Mode
+
+By default every recovery action executes through `MockPaymentGateway` —
+no network call, no credentials needed. `RazorpayPaymentGateway` (real
+calls to Razorpay's Payment Links API, `POST /v1/payment_links`) is
+selected instead only when **both** of these are set — two independent
+opt-ins, deliberately redundant, so a live-looking gateway can never be
+selected by accident:
+
+| Variable | Required value | Purpose |
+|---|---|---|
+| `RAZORPAY_ENABLED` | `true` | Turns the real gateway on at all (default `false`) |
+| `RAZORPAY_MODE` | `test` | Must be exactly `test`, not `live` — this codebase has no live-mode code path (default `simulation`) |
+| `RAZORPAY_KEY_ID` | your Razorpay **Test Mode** key id (starts `rzp_test_`) | Basic-auth identity for the API call |
+| `RAZORPAY_KEY_SECRET` | your Razorpay **Test Mode** key secret | Basic-auth credential — never logged, never returned by any endpoint |
+| `RAZORPAY_WEBHOOK_SECRET` | the webhook secret configured in your Razorpay dashboard for this endpoint | Verifies `POST /api/webhooks/razorpay` deliveries (see below) — also required for the judge-safe signed **test** confirmation button even with the mock gateway |
+
+Use only **Test Mode** credentials from your Razorpay dashboard (key ids
+starting `rzp_test_`) — this codebase has no support for and should never
+be given live/production keys. With `RAZORPAY_ENABLED=false` (the default
+in every profile, including the deployed demo), none of the other
+Razorpay variables do anything; `RazorpayPaymentGateway` is never
+instantiated. This project's own environment has never had real Razorpay
+Test Mode credentials available, so `RazorpayPaymentGateway` (and the
+`test` mode itself) has been verified by code review and unit tests
+(`PaymentGatewayValidation`, response-parsing/failure-mapping tests) but
+never exercised against Razorpay's live sandbox API — see the honest
+BLOCKED note in the buildathon verification report. The class is written
+defensively for exactly this situation: `execute()` never throws, and any
+network error, timeout, non-2xx response, or a response that fails
+identity/amount/status validation is converted into a structured
+`success=false` result rather than ever claiming a payment succeeded.
 
 #### `POST /api/webhooks/razorpay`
 

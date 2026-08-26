@@ -309,6 +309,24 @@ class AuthenticationIntegrationTest {
     }
 
     @Test
+    void resetEndpoint_requiresAuthentication() throws Exception {
+        mockMvc.perform(post("/api/demo/recovery/reset"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void resetEndpoint_operatorRole_isForbidden() throws Exception {
+        // The role gate runs before the service's own demo-mode check, so this is rejected
+        // as 403 regardless of whether demo mode is enabled in this test profile (it isn't -
+        // see DemoResetServiceTest for the 409-when-disabled behavior with the role gate absent).
+        String token = login(OPERATOR_USERNAME, OPERATOR_PASSWORD);
+
+        mockMvc.perform(post("/api/demo/recovery/reset")
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void noSecurityBypassThroughUnmappedPath_stillRequiresAuthentication() throws Exception {
         // /api/payments/execute deliberately does not exist (see RecoveryExecutionControllerTest),
         // but the request must be rejected for lack of authentication before routing even matters.

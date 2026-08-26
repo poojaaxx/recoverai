@@ -6,7 +6,7 @@ import { Badge, outcomeTone, policyTone, riskTone } from '../components/Badge'
 import { ScenarioOperations } from '../components/ScenarioOperations'
 import { BatchRecoveryPanel } from '../components/BatchRecoveryPanel'
 import { EscalationQueuePanel } from '../components/EscalationQueuePanel'
-import { outcomeLabel, type PolicyDecision, type RecoveryDemoScenario, type RecoveryDemoSummary } from '../types/demo'
+import { outcomeLabel, type PolicyDecision, type RecoveryDemoScenario, type RecoveryDemoSummary, type SeedReport } from '../types/demo'
 import type { BatchAgentEvaluationResult, BatchRiskAnalysisResult, RecoveryMetrics, RiskMetrics } from '../types/recovery'
 import { aiProviderLabel } from '../types/recovery'
 import type { ObservabilityMetrics } from '../types/observability'
@@ -395,6 +395,23 @@ export function RecoveryDemoPage() {
 
   const analyzeAllAction = useAsyncAction<BatchRiskAnalysisResult>(() => api.analyzeAllRisk().then((r) => r.data))
   const evaluateAllAction = useAsyncAction<BatchAgentEvaluationResult>(() => api.evaluateAllWithAi().then((r) => r.data))
+  const resetDemoAction = useAsyncAction<SeedReport>(() => api.resetDemoData().then((r) => r.data))
+  const [resetResult, setResetResult] = useState<SeedReport | null>(null)
+
+  async function handleResetDemo() {
+    const confirmed = window.confirm(
+      'Reset all demo data back to its original deterministic state? This discards any executions, confirmations, or audit history you have generated locally.',
+    )
+    if (!confirmed) return
+    setResetResult(null)
+    const result = await resetDemoAction.run()
+    if (result) {
+      setResetResult(result)
+      setAnalyzeAllResult(null)
+      setEvaluateAllResult(null)
+      load()
+    }
+  }
 
   async function handleAnalyzeAll() {
     const result = await analyzeAllAction.run()
@@ -478,8 +495,28 @@ export function RecoveryDemoPage() {
           >
             {loading ? 'Refreshing…' : 'Refresh dashboard'}
           </button>
+          <button
+            onClick={handleResetDemo}
+            disabled={resetDemoAction.loading}
+            title="Dev/demo-only. Requires MERCHANT_ADMIN; disabled outside a demo environment."
+            className="rounded-lg border border-[var(--color-warning)] bg-[var(--color-surface-1)] px-4 py-2 text-sm text-[var(--color-warning)] hover:bg-[color-mix(in_srgb,var(--color-warning)_10%,transparent)] disabled:opacity-50"
+          >
+            {resetDemoAction.loading ? 'Resetting…' : 'Reset demo data'}
+          </button>
         </div>
       </div>
+
+      {resetDemoAction.error && (
+        <div className="mt-6 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--color-danger)] bg-[var(--color-surface-1)] px-4 py-3 text-sm text-[var(--color-danger)]">
+          <span>Reset failed: {resetDemoAction.error.message}</span>
+        </div>
+      )}
+      {resetResult && (
+        <div className="mt-6 rounded-lg border border-[var(--color-success)] bg-[var(--color-surface-1)] px-4 py-3 text-sm text-[var(--color-success)]">
+          Demo data reset — {resetResult.totalTransactions} transactions, {resetResult.recoveryAttemptCount} recovery
+          attempts, {resetResult.auditLogCount} audit rows restored to the original seeded state.
+        </div>
+      )}
 
       {!hasLoadedOnce && loading && (
         <div className="mt-6 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-1)] px-4 py-3 text-sm text-[var(--color-text-secondary)]">

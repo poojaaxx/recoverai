@@ -89,14 +89,20 @@ and [docs/API.md](API.md) for its filters, search, sort, and detail view.
 
 ## What the demo shows
 
-1. **4 KPI cards** at the top: Revenue at Risk, Potentially Recoverable
-   Revenue, Confirmed Revenue Recovered (always ₹0.00 today — see below),
-   and Transactions at Risk (with filter chips: All/Allowed/Escalated/
-   Blocked/Stopped). Below the portfolio actions panel, a **portfolio
-   metrics panel** (`GET /api/recovery/metrics`) shows the same figures
-   computed across every recovery attempt ever made, not just these 5
-   scenarios, plus Recovery Attempts, Confirmed Recoveries, and Pending
-   Confirmation amount.
+1. **5 KPI cards** at the top: Revenue at Risk, Potentially Recoverable
+   Revenue, Provider Executions (a gateway call, not a confirmed payment),
+   Confirmed Revenue Recovered (₹0.00 until a real or signed-test webhook
+   confirms a payment — see below), and Transactions at Risk (with filter
+   chips: All/Allowed/Escalated/Blocked/Stopped). Next to "Refresh
+   dashboard" in the header, a **"Reset demo data"** button
+   (`MERCHANT_ADMIN` only, confirms before running) restores the entire
+   dataset to its original deterministic state via
+   `POST /api/demo/recovery/reset` — see [Repeatability](#repeatability)
+   below. Below the portfolio actions panel, a **portfolio metrics panel**
+   (`GET /api/recovery/metrics`) shows the same figures computed across
+   every recovery attempt ever made, not just these 5 scenarios, plus
+   Recovery Attempts, Confirmed Recoveries, and Pending Confirmation
+   amount.
 2. **A visual pipeline diagram**: Payment Failure → Risk Detection → AI
    Recommendation → Safety Policy → ALLOW? → (yes) Execute Payment →
    Confirmation → Audit, or (no) Escalate/Block/Stop — captioned "AI
@@ -224,21 +230,32 @@ have.
 
 ## Repeatability
 
-Running the demo more than once is safe by construction — no reset step is
-required. Re-analyzing risk is an idempotent upsert, and a repeated
-execution attempt is naturally re-blocked by Phase 4's existing
-`DUPLICATE_ACTION` policy check (the same mechanism that already protects
-Phase 7's execution endpoint), so no scenario can accumulate extra
-`RecoveryAttempt` rows or drift into a contradictory state just from being
-viewed again. See
-[README.md § Failure-Recovery Demo](../README.md)
-for why no `POST /api/demo/reset` was needed.
+Running the 5 named scenarios more than once is safe by construction — no
+reset step is required for them specifically. Re-analyzing risk is an
+idempotent upsert, and a repeated execution attempt is naturally re-blocked
+by Phase 4's existing `DUPLICATE_ACTION` policy check (the same mechanism
+that already protects Phase 7's execution endpoint), so no scenario can
+accumulate extra `RecoveryAttempt` rows or drift into a contradictory state
+just from being viewed again.
+
+For the *wider* dataset — after batch executions, webhook confirmations, or
+other portfolio-wide testing — `POST /api/demo/recovery/reset`
+(`MERCHANT_ADMIN`, development/demo-only) restores everything (transactions,
+customers, risk rows, recovery attempts, webhook events, audit records) to
+the original deterministic seed, via the same routine `DemoSeedRunner` runs
+once at startup. It never touches `AppUser` login rows, so resetting can
+never log out the admin who called it, and it's idempotent — calling it
+twice in a row lands on the exact same shape both times. It's also wired
+into the frontend: a **"Reset demo data"** button on the `/demo/recovery`
+page header (visible to any signed-in user, but the server still enforces
+`MERCHANT_ADMIN` — an `OPERATOR` gets the real 403 message inline) calls
+this endpoint, shows the resulting counts, and refreshes the dashboard.
+Requires `DEMO_SEED_ENABLED=true` and refuses (409) if
+`RAZORPAY_ENABLED=true` — see
+[docs/API.md § `POST /api/demo/recovery/reset`](API.md#post-apidemorecoveryreset-merchant_admin-only).
 
 ## Still to come
 
-- How to seed the demo dataset over HTTP (`POST /api/demo/seed`) rather
-  than only via a test — Phase 8's spec did not require this endpoint, and
-  it remains planned.
 - A real Razorpay Test Mode payment actually confirmed end to end — the
   confirmation flow (Phase 12) is real, tested code, but no live Razorpay
   Test Mode credentials have been configured in this environment, so no

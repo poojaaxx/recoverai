@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { clearSession, getSession, type UserRole } from './auth'
-import type { RecoveryAction, RecoveryDemoScenario, RecoveryDemoSummary } from '../types/demo'
+import type { RecoveryAction, RecoveryDemoScenario, RecoveryDemoSummary, SeedReport } from '../types/demo'
 import type {
   AgentEvaluation,
   AuditEntry,
@@ -162,6 +162,9 @@ export const api = {
   /** P0.4 — drives a real, signed, self-issued webhook through the actual confirmation pipeline for a transaction with an already-successful mock execution. Always TEST/SIMULATION, never real Razorpay money. MERCHANT_ADMIN only. */
   confirmTestPayment: (transactionId: string) =>
     apiClient.post<TestPaymentConfirmation>(`/api/demo/recovery/confirm-test-payment/${transactionId}`),
+
+  /** Dev/demo-only — wipes and re-seeds the deterministic demo dataset back to its original state. MERCHANT_ADMIN only; the backend also refuses this outside a demo environment. */
+  resetDemoData: () => apiClient.post<SeedReport>('/api/demo/recovery/reset'),
 
   transaction: (transactionId: string) => apiClient.get<TransactionDetail>(`/api/transactions/${transactionId}`),
 

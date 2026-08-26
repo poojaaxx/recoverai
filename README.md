@@ -112,7 +112,7 @@ If a transaction is escalated, its detail page shows an "Escalation review" pane
 
 ## Build quality
 
-398 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
+404 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
 
 ## A failure I actually hit
 
@@ -146,7 +146,38 @@ cd backend && SPRING_PROFILES_ACTIVE=local DEMO_SEED_ENABLED=true mvn spring-boo
 cd frontend && npm install && npm run dev
 ```
 
-That runs the backend against an in-memory H2 database with demo data seeded, no PostgreSQL setup required. See `.env.example` for every config option, including how to point it at real PostgreSQL or turn on the Anthropic/Razorpay integrations.
+That runs the backend against an in-memory H2 database with demo data seeded, no PostgreSQL setup required. Log in at `http://localhost:5173` with `merchant.admin` / `RecoverAI-Judge-Admin-2026` (or set your own `DEMO_ADMIN_PASSWORD`/`DEMO_OPERATOR_PASSWORD` first). See `.env.example` for every config option, including how to point it at real PostgreSQL or turn on the Anthropic/Groq/Razorpay integrations.
+
+### Environment variables
+
+Everything below is read server-side only — none of it is ever exposed to the frontend bundle, logged, or returned by any API response. Full detail and defaults live in `.env.example`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | local Postgres | Required outside the `local` (H2) profile |
+| `SPRING_PROFILES_ACTIVE` | unset (Postgres) | `local` = offline H2, dev-only; `prod` = stricter CORS/logging |
+| `FRONTEND_URL` / `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Which origin(s) may call the API |
+| `VITE_API_BASE_URL` | `http://localhost:8080` | The only secret-free `VITE_*` variable — frontend build time |
+| `AUTH_JWT_SECRET` | insecure local placeholder | **Must** be set to a real random value in any real deployment |
+| `DEMO_ADMIN_USERNAME` / `DEMO_ADMIN_PASSWORD` / `DEMO_OPERATOR_USERNAME` / `DEMO_OPERATOR_PASSWORD` | `merchant.admin` / unset / `operator` / unset | Demo login accounts — only seeded when `DEMO_SEED_ENABLED=true` |
+| `AI_PROVIDER` | `mock` | `mock` (no key needed) \| `anthropic` (+ `ANTHROPIC_API_KEY`) \| `groq` (+ `GROQ_API_KEY`, `GROQ_MODEL`) |
+| `RAZORPAY_ENABLED` / `RAZORPAY_MODE` | `false` / `simulation` | Both must be `true` / `test` to use the real Razorpay Test Mode gateway instead of the mock — see [docs/API.md § Configuring real Razorpay Test Mode](docs/API.md#configuring-real-razorpay-test-mode) |
+| `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | unset | Razorpay **Test Mode** credentials only (`rzp_test_...`) — never live keys |
+| `RAZORPAY_WEBHOOK_SECRET` | unset | Verifies inbound `POST /api/webhooks/razorpay` deliveries; also required for the demo console's signed **test** confirmation button (works even with the mock gateway) |
+| `DEMO_SEED_ENABLED` | `false` | Seeds the deterministic demo dataset at startup; also gates `POST /api/demo/recovery/reset` (requires this **and** `RAZORPAY_ENABLED=false`) |
+| `RATE_LIMIT_ENABLED` / `RATE_LIMIT_REQUESTS_PER_WINDOW` / `RATE_LIMIT_WINDOW_SECONDS` | `true` / `20` / `60` | Per-client request throttling |
+| `BATCH_MAX_TRANSACTION_COUNT` / `BATCH_MAX_AGGREGATE_AMOUNT` | `20` / `100000` | Hard server-side ceilings on batch execution |
+
+### Resetting demo data
+
+Once `DEMO_SEED_ENABLED=true`, `POST /api/demo/recovery/reset` (`MERCHANT_ADMIN` only) wipes and re-seeds the entire demo dataset back to its original deterministic state in one call — useful for re-running the failure-path scenarios from a clean slate after batch executions, webhook confirmations, or other testing. It refuses (`409`) if `RAZORPAY_ENABLED=true`, and never touches login accounts. There's a **"Reset demo data"** button for this on the `/demo/recovery` page (next to "Refresh dashboard"), or call it directly:
+
+```bash
+curl -X POST http://localhost:8080/api/demo/recovery/reset \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+See [docs/API.md § `POST /api/demo/recovery/reset`](docs/API.md#post-apidemorecoveryreset-merchant_admin-only).
 
 ## Live links
 

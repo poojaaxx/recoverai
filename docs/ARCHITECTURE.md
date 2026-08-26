@@ -551,7 +551,13 @@ not covered there:
   `RecoveryExecutionService.execute` is already re-blocked by Phase 4's
   `DUPLICATE_ACTION` check on a sequential repeat (see
   [Recovery Execution Pipeline](#recovery-execution-pipeline-phase-7)
-  above). No new locking, caching, or reset mechanism was needed or added.
+  above). No new locking, caching, or reset mechanism was needed or added to
+  `RecoveryDemoService` itself for this. A separate, deliberately minimal
+  `DemoResetService` (`POST /api/demo/recovery/reset`) exists for a
+  different problem entirely - restoring the *wider* dataset (portfolio
+  -wide batch executions, webhook confirmations, anything beyond the 5
+  named scenarios) after a testing session has drifted it - by simply
+  re-running `DemoDataSeeder.seed()`. See docs/API.md.
 - **Frontend types intentionally mirror, not import, the backend DTOs.**
   `frontend/src/types/demo.ts` is a hand-written TypeScript projection of
   `RecoveryDemoScenarioResponse`/`RecoveryDemoSummaryResponse` - there is

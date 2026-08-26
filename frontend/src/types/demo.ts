@@ -76,6 +76,18 @@ export interface RecoveryDemoSummary {
   scenarios: RecoveryDemoScenario[]
 }
 
+/** Response from `POST /api/demo/recovery/reset` — actual post-reset counts read back from the database, mirroring backend `SeedReport`. */
+export interface SeedReport {
+  totalTransactions: number
+  countsByStatus: Record<string, number>
+  highValueCount: number
+  repeatedFailureCount: number
+  revenueRiskCount: number
+  recoveryAttemptCount: number
+  auditLogCount: number
+  demoTransactionIds: Record<string, string>
+}
+
 /** "Outcome" badge shown per scenario — derived on the client from real response fields only. */
 export function outcomeLabel(scenario: RecoveryDemoScenario): 'SUCCESS' | 'FAILED' | 'NOT EXECUTED' | 'PENDING CONFIRMATION' {
   if (!scenario.executed) return 'NOT EXECUTED'
