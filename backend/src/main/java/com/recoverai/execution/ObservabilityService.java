@@ -74,6 +74,18 @@ public class ObservabilityService {
                 .toList();
 
         return new ObservabilityMetricsResponse(policyDecisions, webhooks, providers,
-                recoveryAgentProperties.getProvider());
+                recoveryAgentProperties.getProvider(), configuredModel());
+    }
+
+    /** The configured model for whichever provider is active - never the key, just the model name/id. */
+    private String configuredModel() {
+        String provider = recoveryAgentProperties.getProvider();
+        if ("anthropic".equalsIgnoreCase(provider)) {
+            return recoveryAgentProperties.getAnthropic().getModel();
+        }
+        if ("groq".equalsIgnoreCase(provider)) {
+            return recoveryAgentProperties.getGroq().getModel();
+        }
+        return null;
     }
 }
