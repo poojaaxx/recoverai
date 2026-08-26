@@ -114,7 +114,7 @@ recoverai:
       max-tokens: ${ANTHROPIC_MAX_TOKENS:1024}
     groq:
       api-key: ${GROQ_API_KEY:}
-      model: ${GROQ_MODEL:llama-3.3-70b-versatile}
+      model: ${GROQ_MODEL:openai/gpt-oss-120b}
       temperature: ${GROQ_TEMPERATURE:0.2}
       timeout-seconds: ${GROQ_TIMEOUT_SECONDS:15}
       max-tokens: ${GROQ_MAX_TOKENS:1024}

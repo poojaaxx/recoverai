@@ -37,12 +37,20 @@ public class RecoveryAgentProperties {
         private int maxTokens = 1024;
     }
 
-    /** Groq's OpenAI-compatible chat/completions API - same shape as {@link Anthropic}, different transport. */
+    /**
+     * Groq's OpenAI-compatible chat/completions API - same shape as {@link
+     * Anthropic}, different transport. Groq periodically deprecates and
+     * removes specific model ids (see {@code console.groq.com/docs/
+     * deprecations}); a request naming a removed model returns {@code 404
+     * Not Found}, not a graceful error - if this default ever stops
+     * working, that is almost certainly why. Override with {@code
+     * GROQ_MODEL} rather than editing this default when migrating.
+     */
     @Getter
     @Setter
     public static class Groq {
         private String apiKey = "";
-        private String model = "llama-3.3-70b-versatile";
+        private String model = "openai/gpt-oss-120b";
         private BigDecimal temperature = new BigDecimal("0.2");
         private int timeoutSeconds = 15;
         private int maxTokens = 1024;
