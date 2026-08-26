@@ -112,7 +112,7 @@ If a transaction is escalated, its detail page shows an "Escalation review" pane
 
 ## Build quality
 
-381 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
+398 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
 
 ## A failure I actually hit
 

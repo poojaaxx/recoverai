@@ -89,6 +89,40 @@ response can never be used to enumerate valid usernames.
 
 Send the token on every subsequent request: `Authorization: Bearer <token>`.
 
+#### `POST /api/auth/refresh`
+
+Requires a currently valid bearer token (same as any other protected
+endpoint — this is **not** in the public list). Issues a brand-new token
+for the caller's own account from current database state (role, token
+version) — a sliding-session refresh, not a separate long-lived
+refresh-token type. No request body.
+
+**Response `200 OK`** — same shape as `/login`:
+
+```json
+{ "token": "eyJhbGciOi...", "tokenType": "Bearer", "role": "MERCHANT_ADMIN", "expiresInSeconds": 28800 }
+```
+
+**Response `401 Unauthorized`** if the presented token is missing, expired,
+malformed, or has been revoked (see `/logout` below) — refreshing past
+expiry isn't possible; log in again instead.
+
+#### `POST /api/auth/logout`
+
+Requires a currently valid bearer token. Revokes **every** token ever
+issued to the caller's own account — including the one used to call this
+endpoint — by incrementing `AppUser.token_version`; any request using an
+older token immediately starts getting `401` again, even before its
+natural expiration. There is no per-token/per-session tracking, so this is
+"log out everywhere" for that one account, and never affects any other
+account. No request body.
+
+**Response `200 OK`**
+
+```json
+{ "message": "Logged out. Every previously issued token for this account has been revoked." }
+```
+
 **Roles**
 
 | Role | Can do |

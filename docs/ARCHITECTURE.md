@@ -779,9 +779,11 @@ enforced rule and the structural-independence guarantee (no
 `PaymentGateway` ever imports anything from this package).
 
 - **Identity store** (migration V13, `com.recoverai.domain.AppUser`) -
-  `username`, a bcrypt `password_hash`, and a `role`
-  (`MERCHANT_ADMIN`/`OPERATOR`). Deliberately minimal - no profile fields,
-  no password reset flow, no session/refresh-token tracking. `AppUserSeeder`
+  `username`, a bcrypt `password_hash`, a `role`
+  (`MERCHANT_ADMIN`/`OPERATOR`), and (migration V15) a `token_version`
+  integer counter - the revocation mechanism, see below. Deliberately
+  minimal - no profile fields, no password reset flow, no per-token/
+  per-session tracking, just this one per-user counter. `AppUserSeeder`
   idempotently upserts two demo accounts (gated by the same
   `DEMO_SEED_ENABLED` flag the rest of the demo dataset uses) from
   env-configurable passwords - the checked-in defaults are intentionally
@@ -790,38 +792,69 @@ enforced rule and the structural-independence guarantee (no
 - **`com.recoverai.security.JwtService`** - HS256, signed with
   `recoverai.auth.jwt-secret` (`AUTH_JWT_SECRET`). The checked-in default
   secret is an explicitly documented, insecure, local-dev-only value - any
-  real deployment must override it. A token's `role` claim is authoritative
-  for its lifetime (default 8 hours, `AUTH_JWT_EXPIRATION_MINUTES`) - there
-  is no per-request database lookup or revocation list, a deliberate
-  buildathon simplification (see README "Known limitations").
+  real deployment must override it. Every issued token embeds `role` and
+  `tv` (token version) claims; expiration defaults to 8 hours
+  (`AUTH_JWT_EXPIRATION_MINUTES`). This class only encodes/decodes tokens -
+  it has no database dependency; `JwtAuthenticationFilter` is what actually
+  enforces the `tv` claim against the user's current value.
 - **`com.recoverai.security.JwtAuthenticationFilter`** - reads
-  `Authorization: Bearer <token>`, and if (and only if) the signature
-  verifies and the token is unexpired, populates the security context with
-  a single `ROLE_<role>` authority taken from the token itself - never from
-  a database record a client could otherwise influence.
+  `Authorization: Bearer <token>`. If (and only if) the signature verifies,
+  the token is unexpired, *and* the embedded `tv` claim matches the current
+  `token_version` on that user's `AppUser` row, it populates the security
+  context with a single `ROLE_<role>` authority taken from the token's own
+  claims (never from the freshly-read row - the role a token was issued for
+  doesn't silently change just because the database row does). That last
+  check is a deliberate, necessary reintroduction of a per-request database
+  lookup (one indexed `findByUsername`) - real revocation is not possible
+  in a purely stateless JWT scheme, and this is the smallest state that
+  makes it genuinely work.
+- **Refresh and revocation (`POST /api/auth/refresh`, `POST
+  /api/auth/logout`)** - both require an already-valid token, same as any
+  other protected endpoint (neither is in `SecurityConfig`'s public list).
+  `/refresh` re-issues a token for the caller's own account from current
+  database state (role, token version) - a sliding-session refresh, not a
+  separate long-lived refresh-token type; it only works before the current
+  token expires, since an expired token never reaches the controller
+  authenticated in the first place. `/logout` increments `token_version`,
+  which instantly invalidates every token ever issued to that account
+  (including the one used to call `/logout`) - "log out everywhere," since
+  there's no per-session tracking to log out just one device. A logout only
+  ever touches the caller's own row, never any other account's.
 - **`com.recoverai.security.SecurityConfig`** - the one place authorization
   rules live: `/api/health`, `/api/auth/login`, `/api/webhooks/**`, and
   actuator health are public; `POST /api/recovery/{id}/execute` requires
-  `MERCHANT_ADMIN`; everything else under `/api/**` requires any
-  authenticated user. Also owns CORS (moved here from the now-removed
-  `WebConfig`, same `recoverai.cors.allowed-origins` property, same
-  methods/headers) so Spring Security's filter chain and CORS handling
-  can't disagree with each other.
+  `MERCHANT_ADMIN`; everything else under `/api/**` (including `/api/auth/
+  refresh` and `/api/auth/logout`) requires any authenticated user. Also
+  owns CORS (moved here from the now-removed `WebConfig`, same
+  `recoverai.cors.allowed-origins` property, same methods/headers) so
+  Spring Security's filter chain and CORS handling can't disagree with each
+  other.
 - **Frontend** - a login page, a `localStorage`-backed session, an axios
   request interceptor that attaches the bearer token, and a response
   interceptor that clears the session and redirects to `/login` on `401`.
-  `RequireAuth` is a route guard for UX only - hiding a page a logged-out
-  visitor would just get 401s from - not a security boundary; every real
-  decision still happens server-side regardless of what the frontend lets
-  through (unchanged design principle from every earlier phase).
+  The "Log out" button in `RequireAuth`'s `AuthBar` calls `POST /api/auth/
+  logout` (best-effort - local logout proceeds even if that call fails, so
+  a flaky network can never trap a user in a logged-in-looking UI) before
+  clearing local storage. `RequireAuth` itself is a route guard for UX
+  only - hiding a page a logged-out visitor would just get 401s from - not
+  a security boundary; every real decision still happens server-side
+  regardless of what the frontend lets through (unchanged design principle
+  from every earlier phase).
 - **Testing** - `AuthenticationIntegrationTest` runs the real Spring
   Security filter chain over HTTP (unauthenticated rejection, wrong/unknown
   credentials, valid login, `OPERATOR` forbidden from `/execute`,
   `MERCHANT_ADMIN` allowed, an unmapped path still requiring auth, the
-  webhook needing no user token at all). Every other existing controller
-  test authenticates via `@WithMockUser(roles = "MERCHANT_ADMIN")` at the
-  class level, so each one keeps exercising its own endpoint's behavior
-  unchanged rather than duplicating the auth tests.
+  webhook needing no user token at all, expired-token rejection, refresh
+  success/failure cases, and logout actually revoking a token - including
+  proving a logout never affects any other account's tokens). Every other
+  existing controller test authenticates via `@WithMockUser(roles =
+  "MERCHANT_ADMIN")` at the class level - which populates the security
+  context before `JwtAuthenticationFilter` ever runs, so none of those
+  tests exercise (or are affected by) the token-version database check -
+  so each one keeps exercising its own endpoint's behavior unchanged rather
+  than duplicating the auth tests. `JwtServiceTest` covers the token
+  codec in isolation: claim round-tripping, malformed/tampered/wrong-key/
+  expired tokens all returning empty rather than throwing.
 
 ## Real Razorpay Test Mode - what is and isn't verified here
 
