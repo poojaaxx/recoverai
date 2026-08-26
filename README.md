@@ -39,6 +39,8 @@ I found and fixed a real bug in this integration while adding direct test covera
 
 Groq was added the same way, deliberately reusing that exact structure rather than inventing a new one: same interface, same request/response validation, same fail-closed error handling, same "recommend-only, no repository/gateway/policy access" contract — the only real difference is the wire format (Groq's OpenAI-compatible `chat/completions` shape vs. Anthropic's `messages` shape), and it ships with the JSON-mapper fix already applied. A Groq-flavored recommendation is put through the exact same policy-override test the other two providers get, proving the AI-vs-policy authorization boundary doesn't care which provider produced the recommendation.
 
+The Groq integration then broke live, for a reason worth being honest about: Groq deprecated the model I'd defaulted to (`llama-3.3-70b-versatile`) on 2026-08-16, and every request to a removed model id gets back a bare `404 Not Found` from Groq rather than a descriptive error — everything else about the request (URL, method, headers, JSON shape) was already correct, which is exactly why the fail-closed handling worked as designed: it degraded to the safe ESCALATE fallback instead of breaking anything. Fixed by switching the default to `openai/gpt-oss-120b`, Groq's own recommended replacement, and adding a test that captures the actual outgoing request body (not just the response) to prove the configured model genuinely reaches Groq rather than trusting a hardcoded value. Worth knowing if this happens again: check `console.groq.com/docs/deprecations` — Groq retires specific model ids on its own schedule, independent of anything in this codebase.
+
 ## The recovery flow
 
 ```
@@ -110,7 +112,7 @@ If a transaction is escalated, its detail page shows an "Escalation review" pane
 
 ## Build quality
 
-379 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
+381 backend tests passing (`mvn test`), frontend builds clean (`npm run build`). That includes a test that runs the actual Flyway migrations against a real, temporary PostgreSQL instance rather than just H2, concurrency tests that hit the execution and webhook endpoints with real parallel threads, and webhook tests that go through real signature verification rather than a fake bypass. It's all deployed and reachable live, not just running locally.
 
 ## A failure I actually hit
 
