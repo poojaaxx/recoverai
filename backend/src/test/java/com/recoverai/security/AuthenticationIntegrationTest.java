@@ -12,6 +12,8 @@ import com.recoverai.repository.AppUserRepository;
 import com.recoverai.repository.CustomerRepository;
 import com.recoverai.repository.MerchantRepository;
 import com.recoverai.repository.TransactionRepository;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,9 +24,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.crypto.SecretKey;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -55,11 +63,15 @@ class AuthenticationIntegrationTest {
     private CustomerRepository customerRepository;
     @Autowired
     private TransactionRepository transactionRepository;
+    @Autowired
+    private AuthProperties authProperties;
 
     private static final String ADMIN_USERNAME = "auth-it-admin";
     private static final String ADMIN_PASSWORD = "correct-horse-battery-staple";
     private static final String OPERATOR_USERNAME = "auth-it-operator";
     private static final String OPERATOR_PASSWORD = "another-strong-password";
+    private static final String REVOKE_USERNAME = "auth-it-revoke-subject";
+    private static final String REVOKE_PASSWORD = "yet-another-strong-password";
 
     @BeforeEach
     void seedUsers() {
@@ -73,6 +85,14 @@ class AuthenticationIntegrationTest {
                 .passwordHash(passwordEncoder.encode(OPERATOR_PASSWORD))
                 .role(UserRole.OPERATOR)
                 .build()));
+        // A dedicated identity for refresh/revocation tests, kept separate from the two
+        // fixtures above so incrementing its tokenVersion (via /logout) can never interfere
+        // with any other test's assumption that ADMIN/OPERATOR credentials always work.
+        appUserRepository.findByUsername(REVOKE_USERNAME).orElseGet(() -> appUserRepository.save(AppUser.builder()
+                .username(REVOKE_USERNAME)
+                .passwordHash(passwordEncoder.encode(REVOKE_PASSWORD))
+                .role(UserRole.OPERATOR)
+                .build()));
     }
 
     private String login(String username, String password) throws Exception {
@@ -83,6 +103,25 @@ class AuthenticationIntegrationTest {
                 .andExpect(jsonPath("$.token").isNotEmpty())
                 .andReturn().getResponse().getContentAsString();
         return body.replaceAll(".*\"token\":\"([^\"]+)\".*", "$1");
+    }
+
+    /**
+     * A validly-signed (real secret, read from {@link AuthProperties} rather than hardcoded) but
+     * already-expired token - built directly since {@code JwtService.issueToken()} has no way to
+     * produce one by design. Used to prove expired tokens are rejected end-to-end over real HTTP,
+     * not just at the {@code JwtService.parseClaims()} unit level ({@code JwtServiceTest} covers that).
+     */
+    private String expiredTokenFor(String username, UserRole role) {
+        SecretKey key = Keys.hmacShaKeyFor(authProperties.getJwtSecret().getBytes(StandardCharsets.UTF_8));
+        Instant past = Instant.now().minus(1, ChronoUnit.HOURS);
+        return Jwts.builder()
+                .subject(username)
+                .claim("role", role.name())
+                .claim("tv", 0)
+                .issuedAt(Date.from(past.minus(1, ChronoUnit.HOURS)))
+                .expiration(Date.from(past))
+                .signWith(key, Jwts.SIG.HS256)
+                .compact();
     }
 
     @Test
@@ -285,6 +324,114 @@ class AuthenticationIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    // ---------------------------------------------------------------- expiry
+
+    @Test
+    void expiredToken_onProtectedEndpoint_isRejectedAsUnauthenticated() throws Exception {
+        String expired = expiredTokenFor(OPERATOR_USERNAME, UserRole.OPERATOR);
+
+        mockMvc.perform(get("/api/transactions").header("Authorization", "Bearer " + expired))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ---------------------------------------------------------------- refresh
+
+    @Test
+    void refresh_withValidToken_issuesANewWorkingToken() throws Exception {
+        String original = login(REVOKE_USERNAME, REVOKE_PASSWORD);
+
+        String body = mockMvc.perform(post("/api/auth/refresh").header("Authorization", "Bearer " + original))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.role").value("OPERATOR"))
+                .andReturn().getResponse().getContentAsString();
+        String refreshed = body.replaceAll(".*\"token\":\"([^\"]+)\".*", "$1");
+
+        // Not asserting refreshed != original here: a JWT's iat/exp are second-granularity, so a
+        // login immediately followed by a refresh can legitimately produce byte-for-byte identical
+        // tokens (same subject/role/tokenVersion, same second) - that's not a bug, just a property
+        // of JWT timestamps. What actually matters is that the refreshed token is real and works:
+        mockMvc.perform(get("/api/transactions").header("Authorization", "Bearer " + refreshed))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void refresh_withoutAuthentication_isRejected() throws Exception {
+        mockMvc.perform(post("/api/auth/refresh")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void refresh_withExpiredToken_isRejected() throws Exception {
+        String expired = expiredTokenFor(REVOKE_USERNAME, UserRole.OPERATOR);
+
+        mockMvc.perform(post("/api/auth/refresh").header("Authorization", "Bearer " + expired))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void refresh_withGarbageToken_isRejected() throws Exception {
+        mockMvc.perform(post("/api/auth/refresh").header("Authorization", "Bearer not-a-real-jwt"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ---------------------------------------------------------------- revocation (logout)
+
+    @Test
+    void logout_requiresAuthentication() throws Exception {
+        mockMvc.perform(post("/api/auth/logout")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logout_revokesToken_theSameTokenNoLongerWorksAfterward() throws Exception {
+        String token = login(REVOKE_USERNAME, REVOKE_PASSWORD);
+        mockMvc.perform(get("/api/transactions").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/logout").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").isNotEmpty());
+
+        mockMvc.perform(get("/api/transactions").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logout_thenLoginAgain_getsAFreshWorkingToken() throws Exception {
+        String token = login(REVOKE_USERNAME, REVOKE_PASSWORD);
+        mockMvc.perform(post("/api/auth/logout").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        String freshToken = login(REVOKE_USERNAME, REVOKE_PASSWORD);
+
+        assertThat(freshToken).isNotEqualTo(token);
+        mockMvc.perform(get("/api/transactions").header("Authorization", "Bearer " + freshToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void refresh_afterLogout_theOldTokenCannotRefreshEither() throws Exception {
+        String token = login(REVOKE_USERNAME, REVOKE_PASSWORD);
+        mockMvc.perform(post("/api/auth/logout").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/auth/refresh").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logout_doesNotAffectOtherAccounts() throws Exception {
+        // A logout revokes only the caller's own tokens - proves the tokenVersion increment is
+        // scoped to the single AppUser row, never a global counter that would revoke everyone.
+        String revokeSubjectToken = login(REVOKE_USERNAME, REVOKE_PASSWORD);
+        String operatorToken = login(OPERATOR_USERNAME, OPERATOR_PASSWORD);
+
+        mockMvc.perform(post("/api/auth/logout").header("Authorization", "Bearer " + revokeSubjectToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/transactions").header("Authorization", "Bearer " + operatorToken))
+                .andExpect(status().isOk());
     }
 
     private Transaction seedTransaction() {
