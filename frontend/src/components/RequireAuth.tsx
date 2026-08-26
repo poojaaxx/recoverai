@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { clearSession, getSession } from '../lib/auth'
+import { api } from '../lib/api'
 
 /**
  * Route guard - redirects to `/login` when no session token is present.
@@ -34,6 +35,11 @@ function AuthBar({ username, role }: { username: string; role: string }) {
       </span>
       <button
         onClick={() => {
+          // Best-effort server-side revocation (invalidates this token, and every other
+          // previously issued token, via AppUser.tokenVersion) - local logout proceeds
+          // regardless of whether this call succeeds, so a logged-out browser is never
+          // stuck waiting on (or blocked by) a flaky network request.
+          api.logout().catch(() => {})
           clearSession()
           window.location.href = '/login'
         }}

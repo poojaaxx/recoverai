@@ -150,6 +150,10 @@ export const api = {
 
   login: (username: string, password: string) =>
     apiClient.post<LoginResponse>('/api/auth/login', { username, password }),
+  /** Issues a fresh token from the currently valid one - only works before the current token expires. */
+  refresh: () => apiClient.post<LoginResponse>('/api/auth/refresh'),
+  /** Revokes every token ever issued to this account server-side (see AppUser.tokenVersion). Best-effort from the UI's perspective - the caller should clear the local session regardless of whether this succeeds. */
+  logout: () => apiClient.post<{ message: string }>('/api/auth/logout'),
 
   demoSummary: () => apiClient.get<RecoveryDemoSummary>('/api/demo/recovery'),
   demoScenario: (externalTransactionId: string) =>
