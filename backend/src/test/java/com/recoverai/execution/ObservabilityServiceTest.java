@@ -1,5 +1,6 @@
 package com.recoverai.execution;
 
+import com.recoverai.config.RecoveryAgentProperties;
 import com.recoverai.domain.Customer;
 import com.recoverai.domain.FailureCategory;
 import com.recoverai.domain.Merchant;
@@ -7,9 +8,12 @@ import com.recoverai.domain.PaymentMethod;
 import com.recoverai.domain.Transaction;
 import com.recoverai.domain.TransactionStatus;
 import com.recoverai.dto.ObservabilityMetricsResponse;
+import com.recoverai.repository.AuditLogRepository;
 import com.recoverai.repository.CustomerRepository;
 import com.recoverai.repository.MerchantRepository;
+import com.recoverai.repository.RecoveryAttemptRepository;
 import com.recoverai.repository.TransactionRepository;
+import com.recoverai.repository.WebhookEventRepository;
 import com.recoverai.webhook.PaymentConfirmationService;
 import com.recoverai.webhook.RazorpayWebhookSignature;
 import org.junit.jupiter.api.Test;
@@ -47,6 +51,12 @@ class ObservabilityServiceTest {
     private CustomerRepository customerRepository;
     @Autowired
     private TransactionRepository transactionRepository;
+    @Autowired
+    private AuditLogRepository auditLogRepository;
+    @Autowired
+    private WebhookEventRepository webhookEventRepository;
+    @Autowired
+    private RecoveryAttemptRepository recoveryAttemptRepository;
 
     private Transaction seedTransaction(BigDecimal amount, int successCount) {
         Merchant merchant = merchantRepository.save(Merchant.builder()
@@ -128,6 +138,39 @@ class ObservabilityServiceTest {
         // real configuration, not a hardcoded/fabricated string.
         String mode = observabilityService.getMetrics().aiProviderMode();
         assertThat(mode).isEqualTo("mock");
+    }
+
+    @Test
+    void aiModel_isNullForMock_sinceMockHasNoExternallyConfiguredModel() {
+        assertThat(observabilityService.getMetrics().aiModel()).isNull();
+    }
+
+    @Test
+    void aiProviderModeAndModel_reflectAnthropicConfigurationWhenActive() {
+        RecoveryAgentProperties properties = new RecoveryAgentProperties();
+        properties.setProvider("anthropic");
+        properties.getAnthropic().setModel("claude-sonnet-5");
+        ObservabilityService withAnthropic = new ObservabilityService(
+                auditLogRepository, webhookEventRepository, recoveryAttemptRepository, paymentConfirmationService, properties);
+
+        ObservabilityMetricsResponse metrics = withAnthropic.getMetrics();
+
+        assertThat(metrics.aiProviderMode()).isEqualTo("anthropic");
+        assertThat(metrics.aiModel()).isEqualTo("claude-sonnet-5");
+    }
+
+    @Test
+    void aiProviderModeAndModel_reflectGroqConfigurationWhenActive() {
+        RecoveryAgentProperties properties = new RecoveryAgentProperties();
+        properties.setProvider("groq");
+        properties.getGroq().setModel("llama-3.3-70b-versatile");
+        ObservabilityService withGroq = new ObservabilityService(
+                auditLogRepository, webhookEventRepository, recoveryAttemptRepository, paymentConfirmationService, properties);
+
+        ObservabilityMetricsResponse metrics = withGroq.getMetrics();
+
+        assertThat(metrics.aiProviderMode()).isEqualTo("groq");
+        assertThat(metrics.aiModel()).isEqualTo("llama-3.3-70b-versatile");
     }
 
     private static long mockSuccessCount(ObservabilityMetricsResponse response) {

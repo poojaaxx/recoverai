@@ -2,6 +2,7 @@ package com.recoverai.config;
 
 import com.recoverai.agent.AIRecoveryProvider;
 import com.recoverai.agent.AnthropicAIRecoveryProvider;
+import com.recoverai.agent.GroqAIRecoveryProvider;
 import com.recoverai.agent.MockAIRecoveryProvider;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -42,5 +43,13 @@ class AIProviderConfigTest {
         properties.setProvider("Anthropic");
         AIRecoveryProvider provider = config.aiRecoveryProvider(properties, webClientBuilder);
         assertThat(provider).isInstanceOf(AnthropicAIRecoveryProvider.class);
+    }
+
+    @Test
+    void groqProvider_selectedByConfiguration_caseInsensitive() {
+        RecoveryAgentProperties properties = new RecoveryAgentProperties();
+        properties.setProvider("Groq");
+        AIRecoveryProvider provider = config.aiRecoveryProvider(properties, webClientBuilder);
+        assertThat(provider).isInstanceOf(GroqAIRecoveryProvider.class);
     }
 }

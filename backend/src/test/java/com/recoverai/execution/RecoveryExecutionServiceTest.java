@@ -806,4 +806,46 @@ class RecoveryExecutionServiceTest {
         assertThatThrownBy(() -> executionServiceAlwaysRetryingMock().execute(UUID.randomUUID()))
                 .isInstanceOf(TransactionNotFoundException.class);
     }
+
+    // ---------------------------------------------------------------- Groq end-to-end: recommendation -> policy -> execution
+
+    /** Same shape {@link GroqAIRecoveryProviderTest} proves a real Groq call would produce - provider="groq" specifically, not the generic "test" stub used elsewhere in this file. */
+    private static final AIRecoveryProvider GROQ_FLAVORED_RETRY = context -> new RecoveryRecommendation(
+            context.transaction().transactionId(), RecoveryAction.RETRY_PAYMENT, new BigDecimal("0.88"),
+            "Groq recommends retrying this transaction.", InterventionType.RETRY, context.transaction().amount(),
+            Urgency.MEDIUM, "groq", "llama-3.3-70b-versatile");
+
+    @Test
+    void groqRecommendation_policyAllows_executionActuallyRuns() {
+        // Phase 15, section 8 - end-to-end proof that a Groq-sourced recommendation reaches the
+        // gateway exactly like any other provider's would, only when RecoveryPolicyService says ALLOW.
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
+        CountingGateway gateway = new CountingGateway();
+
+        RecoveryExecutionResponse response = executionService(GROQ_FLAVORED_RETRY, gateway).execute(txn.getId());
+
+        assertThat(response.policyDecision().decision().name()).isEqualTo("ALLOW");
+        assertThat(response.executed()).isTrue();
+        assertThat(gateway.count.get()).isEqualTo(1);
+        assertThat(recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId())).hasSize(1);
+    }
+
+    @Test
+    void groqRecommendation_policyEscalates_noExecutionOccurs() {
+        // Same Groq-flavored recommendation (RETRY_PAYMENT), but on a transaction whose amount
+        // exceeds the autonomous limit - the policy engine overrides it to ESCALATE and the
+        // gateway is never called, proving Groq cannot bypass authorization by being confident.
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("47500.00"), null);
+        CountingGateway gateway = new CountingGateway();
+
+        RecoveryExecutionResponse response = executionService(GROQ_FLAVORED_RETRY, gateway).execute(txn.getId());
+
+        assertThat(response.policyDecision().decision().name()).isEqualTo("ESCALATE");
+        assertThat(response.executed()).isFalse();
+        assertThat(response.requiresHumanApproval()).isTrue();
+        assertThat(gateway.count.get()).isZero();
+        assertThat(recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId())).isEmpty();
+    }
 }
