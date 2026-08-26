@@ -163,14 +163,14 @@ class ObservabilityServiceTest {
     void aiProviderModeAndModel_reflectGroqConfigurationWhenActive() {
         RecoveryAgentProperties properties = new RecoveryAgentProperties();
         properties.setProvider("groq");
-        properties.getGroq().setModel("llama-3.3-70b-versatile");
+        properties.getGroq().setModel("openai/gpt-oss-120b");
         ObservabilityService withGroq = new ObservabilityService(
                 auditLogRepository, webhookEventRepository, recoveryAttemptRepository, paymentConfirmationService, properties);
 
         ObservabilityMetricsResponse metrics = withGroq.getMetrics();
 
         assertThat(metrics.aiProviderMode()).isEqualTo("groq");
-        assertThat(metrics.aiModel()).isEqualTo("llama-3.3-70b-versatile");
+        assertThat(metrics.aiModel()).isEqualTo("openai/gpt-oss-120b");
     }
 
     private static long mockSuccessCount(ObservabilityMetricsResponse response) {

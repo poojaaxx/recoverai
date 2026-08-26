@@ -813,7 +813,7 @@ class RecoveryExecutionServiceTest {
     private static final AIRecoveryProvider GROQ_FLAVORED_RETRY = context -> new RecoveryRecommendation(
             context.transaction().transactionId(), RecoveryAction.RETRY_PAYMENT, new BigDecimal("0.88"),
             "Groq recommends retrying this transaction.", InterventionType.RETRY, context.transaction().amount(),
-            Urgency.MEDIUM, "groq", "llama-3.3-70b-versatile");
+            Urgency.MEDIUM, "groq", "openai/gpt-oss-120b");
 
     @Test
     void groqRecommendation_policyAllows_executionActuallyRuns() {
