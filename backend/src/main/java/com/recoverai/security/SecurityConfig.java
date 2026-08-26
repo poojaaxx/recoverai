@@ -1,5 +1,6 @@
 package com.recoverai.security;
 
+import com.recoverai.repository.AppUserRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -38,6 +39,12 @@ import java.util.List;
  * ({@code RazorpayWebhookSignature}), not by user authentication, since the
  * caller is Razorpay's servers, not a logged-in user.
  * <p>
+ * {@code POST /api/auth/refresh} and {@code POST /api/auth/logout}
+ * deliberately are <b>not</b> in the public list above - both require a
+ * currently valid (unexpired, unrevoked) bearer token, matching every other
+ * authenticated endpoint, via the same {@code .anyRequest().authenticated()}
+ * fallthrough rule.
+ * <p>
  * Everything else under {@code /api/**} requires a valid bearer token.
  * {@code POST /api/recovery/{id}/execute}, {@code .../approve}, {@code
  * .../reject}, {@code POST /api/recovery/batch/execute}, and {@code POST
@@ -55,10 +62,13 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtService jwtService;
+    private final AppUserRepository appUserRepository;
     private final String allowedOrigins;
 
-    public SecurityConfig(JwtService jwtService, @Value("${recoverai.cors.allowed-origins}") String allowedOrigins) {
+    public SecurityConfig(JwtService jwtService, AppUserRepository appUserRepository,
+                           @Value("${recoverai.cors.allowed-origins}") String allowedOrigins) {
         this.jwtService = jwtService;
+        this.appUserRepository = appUserRepository;
         this.allowedOrigins = allowedOrigins;
     }
 
@@ -89,7 +99,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/recovery/*/reject").hasRole("MERCHANT_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/demo/recovery/confirm-test-payment/*").hasRole("MERCHANT_ADMIN")
                         .anyRequest().authenticated())
-                .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new JwtAuthenticationFilter(jwtService, appUserRepository), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 

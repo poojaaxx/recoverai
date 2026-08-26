@@ -16,16 +16,19 @@ import java.util.Optional;
 
 /**
  * Issues and validates stateless HS256 JWTs for the application-level
- * authentication layer. A token's {@code role} claim is authoritative for
- * the lifetime of the token - there is no per-request database lookup or
- * revocation list, a deliberate buildathon simplification (see
- * docs/ARCHITECTURE.md "Authentication & Authorization" - known
- * limitations). Never logs a token or the signing key.
+ * authentication layer. A token embeds the {@code role} it was issued for
+ * and the {@code tokenVersion} that was current on {@code AppUser} at
+ * issuance time; {@code JwtAuthenticationFilter} is what actually enforces
+ * that the embedded version still matches the user's current one (this
+ * class only encodes/decodes the token itself and has no database
+ * dependency). See {@code AppUser.tokenVersion}'s javadoc for the
+ * revocation model. Never logs a token or the signing key.
  */
 @Component
 public class JwtService {
 
     private static final String ROLE_CLAIM = "role";
+    private static final String TOKEN_VERSION_CLAIM = "tv";
 
     private final SecretKey key;
     private final long expirationMinutes;
@@ -35,11 +38,12 @@ public class JwtService {
         this.expirationMinutes = properties.getJwtExpirationMinutes();
     }
 
-    public String issueToken(String username, UserRole role) {
+    public String issueToken(String username, UserRole role, int tokenVersion) {
         Instant now = Instant.now();
         return Jwts.builder()
                 .subject(username)
                 .claim(ROLE_CLAIM, role.name())
+                .claim(TOKEN_VERSION_CLAIM, tokenVersion)
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))
                 .signWith(key, Jwts.SIG.HS256)
@@ -61,5 +65,10 @@ public class JwtService {
 
     public static String roleClaim(Claims claims) {
         return claims.get(ROLE_CLAIM, String.class);
+    }
+
+    /** Null if the claim is absent (e.g. a token issued before this claim existed) - callers must treat that as "does not match" rather than skipping the check. */
+    public static Integer tokenVersionClaim(Claims claims) {
+        return claims.get(TOKEN_VERSION_CLAIM, Integer.class);
     }
 }
