@@ -853,14 +853,23 @@ in-memory counters).
     { "provider": "mock", "status": "SUCCESS", "total": 30 },
     { "provider": "mock", "status": "FAILED", "total": 2 }
   ],
-  "aiProviderMode": "mock"
+  "aiProviderMode": "mock",
+  "aiModel": null
 }
 ```
 
-`aiProviderMode` (Phase 14) is the actual configured
-`recoverai.ai.provider` value (`"mock"` or `"anthropic"`), read directly
-from configuration — never inferred, never hardcoded to imply more than
-what's actually running.
+`aiProviderMode` is the actual configured `recoverai.ai.provider` value
+(`"mock"`, `"anthropic"`, or `"groq"`), read directly from configuration —
+never inferred, never hardcoded to imply more than what's actually
+running. `aiModel` is the configured model string for whichever provider
+is active (`null` for `"mock"`, which has no externally configured
+model — e.g. `"claude-sonnet-5"` for Anthropic, or the value of
+`GROQ_MODEL` for Groq). Both fields always reflect what's *configured*,
+independent of whether any individual recommendation call actually
+succeeded — a failed call still reports the same configured provider/model
+here, while the failed recommendation itself reports `provider: "fallback"`
+(see `POST /api/recovery-agent/evaluate/{transactionId}` above) rather than
+being attributed to a provider that didn't actually produce it.
 
 ## Planned (not yet implemented)
 

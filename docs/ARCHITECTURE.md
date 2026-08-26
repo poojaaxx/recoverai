@@ -318,11 +318,17 @@ demo-scenario outcomes. Architecturally relevant points not covered there:
   what makes "the AI cannot bypass policy" true by construction, not just
   by convention.
 - **One explicit wiring point.** `AIProviderConfig` is the single place
-  that decides `MockAIRecoveryProvider` vs `AnthropicAIRecoveryProvider`
-  from `recoverai.ai.provider` — chosen over two `@Component`-annotated
-  providers with `@ConditionalOnProperty` specifically so there is no risk
-  of an ambiguous-bean wiring error and no need to hunt across files to
-  see how the choice is made.
+  that decides `MockAIRecoveryProvider` vs `AnthropicAIRecoveryProvider` vs
+  `GroqAIRecoveryProvider` from `recoverai.ai.provider` — chosen over three
+  `@Component`-annotated providers with `@ConditionalOnProperty`
+  specifically so there is no risk of an ambiguous-bean wiring error and no
+  need to hunt across files to see how the choice is made. `
+  GroqAIRecoveryProvider` is structurally identical to `
+  AnthropicAIRecoveryProvider` — same interface, same validated
+  recommendation schema, same fail-closed error handling — the only real
+  difference is the wire format: Groq's OpenAI-compatible `chat/completions`
+  request/response shape (`choices[0].message.content`) instead of
+  Anthropic's `messages` API shape (`content[0].text`).
 - **Validation is exhaustive and fails closed.** `RecoveryAgentService.
   isValid()` rejects a null/unknown action, an out-of-range confidence, a
   negative expected value, a missing intervention type/urgency, a blank
@@ -333,18 +339,19 @@ demo-scenario outcomes. Architecturally relevant points not covered there:
   RecoveryPolicyService` rather than a special "AI failed" code path, so
   the failure mode is exercised by the same, already-tested policy logic
   every other `ESCALATE` recommendation uses.
-- **Anthropic response schema is validated the same way a mock response
-  would be.** `AnthropicAIRecoveryProvider.parseRecommendation()` never
+- **Anthropic and Groq response schemas are validated the same way a mock
+  response would be.** Neither `parseRecommendation()` implementation
   trusts the model's JSON directly — an unsupported `action`/`
   interventionType`/`urgency` value fails enum parsing and is wrapped as `
   AIProviderException`, which `RecoveryAgentService` always catches and
   turns into the same safe `ESCALATE` fallback used for any other provider
-  failure. See `AnthropicAIRecoveryProviderTest` for direct coverage of
-  malformed JSON, an empty content array, an unsupported action, and a
-  non-2xx/network failure — none of these reach the policy engine as a raw
+  failure. See `AnthropicAIRecoveryProviderTest` and `
+  GroqAIRecoveryProviderTest` for direct coverage of malformed JSON, an
+  empty content/choices array, an unsupported action, a non-2xx/network
+  failure, and a timeout — none of these reach the policy engine as a raw
   exception.
-- **A real bug this pass found and fixed:** the provider built its own
-  `new ObjectMapper()` with no modules registered, while `
+- **A real bug this pass found and fixed:** the Anthropic provider built
+  its own `new ObjectMapper()` with no modules registered, while `
   RecoveryAgentContext` always carries non-null `Instant` fields (`
   createdAt`, sometimes `lastAttemptAt`). Serializing that context to send
   to Claude threw `InvalidDefinitionException` immediately — meaning a real
@@ -355,7 +362,10 @@ demo-scenario outcomes. Architecturally relevant points not covered there:
   constructed instance does not). Caught by `
   AnthropicAIRecoveryProviderTest`, which exercises this provider's HTTP
   and parsing logic directly with a fake `WebClient` `ExchangeFunction` —
-  no other test in the suite had ever called `buildUserContent` for real.
+  no other test in the suite had ever called `buildUserContent` for real. `
+  GroqAIRecoveryProvider` was added afterward and shares the identical `
+  objectMapper` field (with the fix already applied), so it was never
+  exposed to this bug.
 - **Context building has no compile-time dependency on Phase 3's
   internals.** `RecoveryAgentService.resolveFailureCategory()` and `
   MockAIRecoveryProvider`'s Bayesian-smoothed probability estimate are
