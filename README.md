@@ -186,6 +186,8 @@ See [docs/API.md § `POST /api/demo/recovery/reset`](docs/API.md#post-apidemorec
 - Backend health check: https://recoverai-xrky.onrender.com/api/health
 - Repository: https://github.com/poojaaxx/recoverai
 
+The frontend deploy (Vercel) is now connected directly to this repository's `main` branch (root directory `frontend/`), so pushes here go live automatically — it previously wasn't Git-connected, which is why some commits took a while to show up on the live site.
+
 ## Final takeaway
 
 The interesting part of RecoverAI isn't asking an LLM what to do about a failed payment — that's the easy part. It's closing the whole loop: detecting revenue that's actually worth chasing, getting a useful recommendation from AI, enforcing deterministic rules that decide what's actually allowed to run, executing only within those bounds, and only counting money as recovered once a real payment confirmation says so.
