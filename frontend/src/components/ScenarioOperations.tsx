@@ -276,7 +276,23 @@ export function ScenarioOperations({
   async function handleConfirmTestPayment() {
     const result = await confirmTestPaymentAction.run()
     if (!result) return
-    setOp((prev) => ({ ...prev, testConfirmation: result }))
+    setOp((prev) => ({
+      ...prev,
+      testConfirmation: result,
+      // Synchronize the real confirmation fields into `execution` - it previously only ever held
+      // the pre-confirmation snapshot from handleExecute(), so paymentConfirmationStatus/
+      // confirmedAmount stayed stuck at NOT_CONFIRMED/null here even after a real confirmation
+      // succeeded. Every value below comes straight from the confirm-test-payment API response.
+      execution:
+        prev.execution && result.outcome === 'CONFIRMED'
+          ? {
+              ...prev.execution,
+              paymentConfirmationStatus: 'CONFIRMED',
+              confirmedAmount: result.confirmedAmount,
+              amountRecovered: result.confirmedAmount ?? prev.execution.amountRecovered,
+            }
+          : prev.execution,
+    }))
     await Promise.all([handleRefreshTransaction(), handleRefreshAudit()])
     onDashboardRefreshNeeded()
   }

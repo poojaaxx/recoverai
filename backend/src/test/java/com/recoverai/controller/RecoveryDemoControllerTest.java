@@ -37,8 +37,12 @@ class RecoveryDemoControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scenariosEvaluated").value(5))
                 .andExpect(jsonPath("$.scenarios.length()").value(5))
-                .andExpect(jsonPath("$.confirmedAmountRecovered").value(0.00))
-                .andExpect(jsonPath("$.executedCount").value(1))
+                // ALREADY_RECOVERED is seeded as a historically confirmed recovery (₹1,899.00) -
+                // the only genuinely confirmed figure among the 5 scenarios. executedCount counts
+                // it too (a real prior success, honestly reported), but gatewayCalls does not
+                // (no fresh gateway call happened for it on this call - only EASY_RECOVERY's did).
+                .andExpect(jsonPath("$.confirmedAmountRecovered").value(1899.00))
+                .andExpect(jsonPath("$.executedCount").value(2))
                 .andExpect(jsonPath("$.gatewayCalls").value(1));
     }
 

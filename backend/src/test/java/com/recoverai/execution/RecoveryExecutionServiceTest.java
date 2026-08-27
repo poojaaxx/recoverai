@@ -447,6 +447,9 @@ class RecoveryExecutionServiceTest {
 
         assertThat(first.policyDecision().decision().name()).isEqualTo("ALLOW");
         assertThat(second.policyDecision().decision().name()).isEqualTo("BLOCK");
+        // SEND_RECOVERY_REMINDER never calls a payment gateway (provider stays null), so it's
+        // excluded from RecoveryExecutionService.lastSuccessfulAttempt's "genuine payment success"
+        // check - `executed` correctly stays false here, unlike a real payment-gateway action.
         assertThat(second.executed()).isFalse();
         assertThat(recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId())).hasSize(1);
     }
@@ -509,9 +512,13 @@ class RecoveryExecutionServiceTest {
 
         assertThat(first.executed()).isTrue();
         assertThat(gateway.count.get()).isEqualTo(1);
-        assertThat(second.executed()).isFalse();
+        // No new gateway call happens for the blocked second call (asserted above) - that's the
+        // actual safety guarantee. `executed` now honestly reflects that a real, provider-backed
+        // attempt already exists for this transaction, rather than reporting "not executed".
+        assertThat(second.executed()).isTrue();
         assertThat(second.policyDecision().decision().name()).isEqualTo("BLOCK");
-        assertThat(second.recoveryAttemptId()).isNull();
+        // Points at the first call's real attempt row - not a new reservation of its own.
+        assertThat(second.recoveryAttemptId()).isEqualTo(first.recoveryAttemptId());
         // Only the one real execution attempt exists - the blocked second call never reserved another.
         assertThat(recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId())).hasSize(1);
     }
@@ -538,7 +545,10 @@ class RecoveryExecutionServiceTest {
         RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, gateway).execute(txn.getId());
 
         assertThat(gateway.count.get()).isZero();
-        assertThat(response.executed()).isFalse();
+        // No new gateway call happens (asserted above) - that's the actual safety guarantee.
+        // `executed` now honestly reflects that a real, provider-backed attempt already exists
+        // for this transaction, rather than reporting "not executed" for one that plainly was.
+        assertThat(response.executed()).isTrue();
         assertThat(response.policyDecision().decision().name()).isEqualTo("BLOCK");
         assertThat(recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(txn.getId())).hasSize(1);
     }

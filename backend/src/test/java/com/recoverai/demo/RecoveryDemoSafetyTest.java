@@ -113,8 +113,10 @@ class RecoveryDemoSafetyTest {
 
         RecoveryDemoScenarioResponse secondRun = recoveryDemoService.runOne("demo-easy-recovery");
 
+        // No new attempt row is created (the real safety guarantee) - `executed` honestly reports
+        // that a prior attempt for this transaction genuinely succeeded, rather than "not executed".
         assertThat(attemptsFor("demo-easy-recovery")).hasSize(attemptsAfterFirstRun);
-        assertThat(secondRun.executed()).isFalse();
+        assertThat(secondRun.executed()).isTrue();
         assertThat(secondRun.policyDecision()).isEqualTo(PolicyDecision.BLOCK);
     }
 
@@ -129,20 +131,30 @@ class RecoveryDemoSafetyTest {
     }
 
     @Test
-    void amountRecovered_isZeroForEveryCurrentlyReachableOutcome() {
+    void amountRecovered_isZeroForEveryOutcomeExceptAGenuinelyConfirmedOne() {
+        // ALREADY_RECOVERED is seeded as a historically confirmed recovery (₹1,899.00) - every
+        // other scenario, none of which has ever been confirmed, must stay exactly zero.
         RecoveryDemoSummaryResponse summary = recoveryDemoService.runAll();
         for (RecoveryDemoScenarioResponse scenario : summary.scenarios()) {
-            assertThat(scenario.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+            BigDecimal expected = "ALREADY_RECOVERED".equals(scenario.scenarioLabel())
+                    ? new BigDecimal("1899.00") : BigDecimal.ZERO;
+            assertThat(scenario.amountRecovered())
+                    .as("amountRecovered for " + scenario.scenarioLabel())
+                    .isEqualByComparingTo(expected);
         }
     }
 
     @Test
-    void confirmedAmountRecovered_isZero_neverDerivedFromPotentialOrAtRiskFigures() {
+    void confirmedAmountRecovered_neverDerivedFromPotentialOrAtRiskFigures() {
         RecoveryDemoSummaryResponse summary = recoveryDemoService.runAll();
 
-        assertThat(summary.confirmedAmountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+        // The only genuinely confirmed figure in the seeded demo dataset - never inflated by,
+        // or equal to, the unrelated potential/at-risk estimates below.
+        assertThat(summary.confirmedAmountRecovered()).isEqualByComparingTo(new BigDecimal("1899.00"));
         assertThat(summary.totalPotentialRecoveryValue()).isNotEqualByComparingTo(BigDecimal.ZERO);
         assertThat(summary.totalAmountAtRisk()).isNotEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(summary.confirmedAmountRecovered()).isNotEqualByComparingTo(summary.totalPotentialRecoveryValue());
+        assertThat(summary.confirmedAmountRecovered()).isNotEqualByComparingTo(summary.totalAmountAtRisk());
     }
 
     // ---------------------------------------------------------------- helpers

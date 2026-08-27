@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -92,13 +93,19 @@ class RecoveryExecutionDemoScenariosTest {
     }
 
     @Test
-    void demoSuccessfulRecovery_blocked_noExecution() {
+    void demoSuccessfulRecovery_blocked_noNewExecution() {
         RecoveryExecutionResponse response = execute("successful_recovery");
         log(response);
 
         assertThat(response.policyDecision().decision().name()).isEqualTo("BLOCK");
-        assertThat(response.executed()).isFalse();
-        assertThat(response.recoveryAttemptId()).isNull();
+        // Seeded as a historically SUCCESS + CONFIRMED attempt - re-evaluating it correctly
+        // reports that real prior success (and points at the real attempt row) rather than
+        // "not executed"; no NEW attempt is created by this call (see RecoveryDemoSafetyTest's
+        // duplicate-protection tests for that guarantee).
+        assertThat(response.executed()).isTrue();
+        assertThat(response.recoveryAttemptId()).isNotNull();
+        assertThat(response.paymentConfirmationStatus().name()).isEqualTo("CONFIRMED");
+        assertThat(response.amountRecovered()).isEqualByComparingTo(new BigDecimal("1899.00"));
     }
 
     private RecoveryExecutionResponse execute(String demoKey) {

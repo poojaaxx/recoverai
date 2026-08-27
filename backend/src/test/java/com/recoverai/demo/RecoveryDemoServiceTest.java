@@ -66,7 +66,11 @@ class RecoveryDemoServiceTest {
 
         RecoveryDemoScenarioResponse alreadyRecovered = find(summary, "ALREADY_RECOVERED");
         assertThat(alreadyRecovered.policyDecision()).isEqualTo(PolicyDecision.BLOCK);
-        assertThat(alreadyRecovered.executed()).isFalse();
+        // Seeded as a historically SUCCESS + CONFIRMED attempt - re-evaluating it (this call
+        // included) correctly reports that real prior success, not "not executed".
+        assertThat(alreadyRecovered.executed()).isTrue();
+        assertThat(alreadyRecovered.paymentConfirmationStatus().name()).isEqualTo("CONFIRMED");
+        assertThat(alreadyRecovered.amountRecovered()).isEqualByComparingTo(new BigDecimal("1899.00"));
 
         RecoveryDemoScenarioResponse alreadyEscalated = find(summary, "ALREADY_ESCALATED");
         assertThat(alreadyEscalated.policyDecision()).isEqualTo(PolicyDecision.ESCALATE);
@@ -83,11 +87,19 @@ class RecoveryDemoServiceTest {
     }
 
     @Test
-    void runAll_confirmedAmountRecoveredIsAlwaysZero() {
+    void runAll_confirmedAmountRecoveredOnlyReflectsGenuinelyConfirmedAttempts() {
+        // ALREADY_RECOVERED is seeded as a historically confirmed recovery (₹1,899.00) - the
+        // other 4 scenarios have never been confirmed, so contribute nothing. The aggregate must
+        // equal exactly the one genuine confirmation, never more (never derived from potential/
+        // at-risk figures) and never less (never hidden just because it happened in the past).
         RecoveryDemoSummaryResponse summary = recoveryDemoService.runAll();
-        assertThat(summary.confirmedAmountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(summary.confirmedAmountRecovered()).isEqualByComparingTo(new BigDecimal("1899.00"));
         for (RecoveryDemoScenarioResponse scenario : summary.scenarios()) {
-            assertThat(scenario.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+            BigDecimal expected = "ALREADY_RECOVERED".equals(scenario.scenarioLabel())
+                    ? new BigDecimal("1899.00") : BigDecimal.ZERO;
+            assertThat(scenario.amountRecovered())
+                    .as("amountRecovered for " + scenario.scenarioLabel())
+                    .isEqualByComparingTo(expected);
         }
     }
 
@@ -99,9 +111,12 @@ class RecoveryDemoServiceTest {
         assertThat(summary.escalatedCount()).isEqualTo(2);
         assertThat(summary.stoppedCount()).isEqualTo(1);
         assertThat(summary.blockedCount()).isEqualTo(1);
-        assertThat(summary.executedCount()).isEqualTo(1);
+        // executed=2 (EASY_RECOVERY, freshly executed this call, + ALREADY_RECOVERED, honestly
+        // reporting its real historical success) - but gatewayCalls stays 1, since a real gateway
+        // call happened only for EASY_RECOVERY; ALREADY_RECOVERED is a replay of prior state.
+        assertThat(summary.executedCount()).isEqualTo(2);
         assertThat(summary.gatewayCalls()).isEqualTo(1);
-        assertThat(summary.simulatedExecutions()).isEqualTo(1);
+        assertThat(summary.simulatedExecutions()).isEqualTo(2);
     }
 
     @Test
@@ -120,11 +135,15 @@ class RecoveryDemoServiceTest {
 
         assertThat(attemptsAfterSecondRun).isEqualTo(attemptsAfterFirstRun);
         assertThat(secondRun.gatewayCalls()).isZero();
-        assertThat(secondRun.executedCount()).isZero();
+        // executed=2 (EASY_RECOVERY + ALREADY_RECOVERED) even though neither made a fresh gateway
+        // call this run (gatewayCalls stays 0, asserted above) - both honestly report a real prior
+        // success rather than "not executed" just because nothing NEW happened on this call.
+        assertThat(secondRun.executedCount()).isEqualTo(2);
 
         RecoveryDemoScenarioResponse easySecondTime = find(secondRun, "EASY_RECOVERY");
-        assertThat(easySecondTime.executed()).isFalse();
+        assertThat(easySecondTime.executed()).isTrue();
         assertThat(easySecondTime.policyDecision()).isEqualTo(PolicyDecision.BLOCK);
+        assertThat(easySecondTime.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO); // never confirmed in this test
         assertThat(easySecondTime.safetyExplanation()).containsIgnoringCase("safety policy");
     }
 

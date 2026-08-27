@@ -4,6 +4,7 @@ import com.recoverai.domain.AuditLog;
 import com.recoverai.domain.Customer;
 import com.recoverai.domain.FailureCategory;
 import com.recoverai.domain.Merchant;
+import com.recoverai.domain.PaymentConfirmationStatus;
 import com.recoverai.domain.PaymentMethod;
 import com.recoverai.domain.RecoveryAction;
 import com.recoverai.domain.RecoveryAttempt;
@@ -549,6 +550,11 @@ public class DemoDataSeeder {
                 .updatedAt(recent.plus(1, ChronoUnit.HOURS))
                 .build());
         recordRiskAndAudit(successfulRecovery, recent, FailureCategory.NETWORK_ERROR, false);
+        // A RECOVERED transaction with a non-zero amountRecovered must also be marked genuinely
+        // confirmed - the rest of the system (RecoveryExecutionService, the demo endpoints) treats
+        // "already recovered" and "already confirmed" as the same real-world fact for an existing
+        // attempt, so seed data representing history has to be internally consistent with that too.
+        Instant confirmedAt = recent.plus(1, ChronoUnit.HOURS);
         RecoveryAttempt recoveryAttempt = recoveryAttemptRepository.save(RecoveryAttempt.builder()
                 .transaction(successfulRecovery)
                 .action(RecoveryAction.RETRY_PAYMENT)
@@ -558,6 +564,13 @@ public class DemoDataSeeder {
                 .result("Retry succeeded")
                 .amountRecovered(successfulRecovery.getAmount())
                 .amount(successfulRecovery.getAmount())
+                .provider("mock")
+                .providerReference("seed_" + successfulRecovery.getExternalTransactionId())
+                .paymentConfirmationStatus(PaymentConfirmationStatus.CONFIRMED)
+                .confirmedAmount(successfulRecovery.getAmount())
+                .confirmedCurrency("INR")
+                .providerPaymentId("seed_pay_" + successfulRecovery.getExternalTransactionId())
+                .confirmedAt(confirmedAt)
                 .executedAt(recent.plus(1, ChronoUnit.HOURS))
                 .build());
         auditLogRepository.save(AuditLog.builder()
@@ -565,7 +578,7 @@ public class DemoDataSeeder {
                 .eventType("RECOVERY_ATTEMPT_RECORDED")
                 .actor("SEED_SCRIPT")
                 .decision("N/A")
-                .reason("Historical seed data representing a successful recovery attempt")
+                .reason("Historical seed data representing a successful, confirmed recovery attempt")
                 .metadata(Map.of("amountRecovered", recoveryAttempt.getAmountRecovered()))
                 .timestamp(recoveryAttempt.getExecutedAt())
                 .build());

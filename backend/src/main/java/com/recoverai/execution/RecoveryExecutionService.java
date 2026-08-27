@@ -407,6 +407,14 @@ public class RecoveryExecutionService {
     private RecoveryExecutionResponse notExecutedResponse(Transaction transaction,
                                                             RecoveryAgentEvaluationResponse agentResponse,
                                                             boolean duplicate, String note) {
+        Optional<RecoveryAttempt> priorSuccess = lastSuccessfulAttempt(transaction.getId());
+        if (priorSuccess.isPresent()) {
+            // Always a replay of pre-existing state, never a fresh call this request made -
+            // regardless of the `duplicate` this specific call was already tracking - so
+            // aggregate "gateway calls made this run" counters (see RecoveryDemoService) don't
+            // double-count a transaction that simply already had a successful attempt.
+            return existingAttemptResponse(transaction, agentResponse, priorSuccess.get(), true, note);
+        }
         return new RecoveryExecutionResponse(
                 transaction.getId(), transaction.getExternalTransactionId(),
                 agentResponse.aiRecommendation(), agentResponse.policyDecision(),
@@ -414,6 +422,42 @@ public class RecoveryExecutionService {
                 null, null, null, transaction.getAmount(), zero(), false,
                 null, null, duplicate, note, agentResponse.auditEventId(), Instant.now(),
                 PaymentConfirmationStatus.NOT_CONFIRMED, null, null, null, null);
+    }
+
+    /**
+     * Nothing new executed on this call (policy correctly blocked further action - most
+     * commonly because the transaction is already recovered), but a prior attempt on this
+     * transaction genuinely succeeded and may already be payment-confirmed. Surfaces that real,
+     * persisted state instead of always reporting {@code NOT_CONFIRMED}/null fields, which would
+     * otherwise hide an already-confirmed recovery every time this transaction is re-evaluated
+     * (e.g. the demo endpoints, which re-run this pipeline on every {@code GET}). Execution
+     * itself is unaffected by this - an already-recovered transaction still never re-executes.
+     */
+    private RecoveryExecutionResponse existingAttemptResponse(Transaction transaction,
+                                                                RecoveryAgentEvaluationResponse agentResponse,
+                                                                RecoveryAttempt existing, boolean duplicate, String note) {
+        return new RecoveryExecutionResponse(
+                transaction.getId(), transaction.getExternalTransactionId(),
+                agentResponse.aiRecommendation(), agentResponse.policyDecision(),
+                agentResponse.requiresHumanApproval(), true, existing.getId(), existing.getAction(),
+                existing.getProvider(), existing.getProviderReference(), existing.getStatus(),
+                existing.getAmount(), zeroIfNull(existing.getAmountRecovered()),
+                "mock".equals(existing.getProvider()), null, null, duplicate, note,
+                agentResponse.auditEventId(), Instant.now(),
+                confirmationStatus(existing), existing.getConfirmedAmount(), existing.getConfirmedCurrency(),
+                existing.getProviderPaymentId(), existing.getConfirmedAt());
+    }
+
+    /** Only a genuine payment-gateway success (`provider != null`) counts - a recorded {@code SEND_RECOVERY_REMINDER} never calls a gateway or gets confirmed, so it must keep reporting `executed=false` like any other non-payment action. */
+    private Optional<RecoveryAttempt> lastSuccessfulAttempt(UUID transactionId) {
+        var attempts = recoveryAttemptRepository.findByTransactionIdOrderByAttemptNumberAsc(transactionId);
+        for (int i = attempts.size() - 1; i >= 0; i--) {
+            RecoveryAttempt attempt = attempts.get(i);
+            if (attempt.getStatus() == RecoveryAttemptStatus.SUCCESS && attempt.getProvider() != null) {
+                return Optional.of(attempt);
+            }
+        }
+        return Optional.empty();
     }
 
     private RecoveryExecutionResponse duplicateResponse(Transaction transaction,

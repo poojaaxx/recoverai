@@ -1,5 +1,6 @@
 package com.recoverai.demo;
 
+import com.recoverai.domain.PaymentConfirmationStatus;
 import com.recoverai.domain.PolicyDecision;
 import com.recoverai.domain.Transaction;
 import com.recoverai.dto.AuditTimelineEntryResponse;
@@ -140,14 +141,31 @@ public class RecoveryDemoService {
         if (execution.executionNote() != null) {
             return execution.executionNote();
         }
+        PolicyDecision decision = execution.policyDecision() == null ? null : execution.policyDecision().decision();
+        String reason = execution.policyDecision() == null ? null : execution.policyDecision().reason();
+
+        // `executed=true` alone no longer means "this call itself just ran it" - a transaction that
+        // already had a successful attempt (e.g. re-evaluating an already-recovered scenario) reports
+        // `executed=true` honestly too (see RecoveryExecutionService.existingAttemptResponse), with
+        // `duplicate=true` marking it as a replay of prior state rather than a fresh call this made.
+        if (execution.executed() && execution.duplicate()) {
+            String policyNote = reason == null ? "" : " Blocked by safety policy on this call: " + reason;
+            if (execution.paymentConfirmationStatus() == PaymentConfirmationStatus.CONFIRMED) {
+                return ("A prior recovery attempt for this transaction already executed and was confirmed by a "
+                        + "verified payment webhook - amountRecovered is %s. Nothing new executed on this call."
+                        + "%s").formatted(execution.amountRecovered(), policyNote);
+            }
+            return ("A prior recovery attempt for this transaction already executed through the %s payment "
+                    + "provider (simulated=%s); nothing new executed on this call. Payment confirmation is "
+                    + "still pending - amountRecovered stays 0.00 until a real, confirmed provider result exists."
+                    + "%s").formatted(execution.provider(), execution.simulated(), policyNote);
+        }
         if (execution.executed()) {
             return ("AI recommended an action; the policy engine authorized it (ALLOW) and it was executed "
                     + "through the %s payment provider (simulated=%s). This confirms the provider call ran — "
                     + "not that money was recovered. Payment confirmation is pending; amountRecovered stays "
                     + "0.00 until a real, confirmed provider result exists.").formatted(execution.provider(), execution.simulated());
         }
-        PolicyDecision decision = execution.policyDecision() == null ? null : execution.policyDecision().decision();
-        String reason = execution.policyDecision() == null ? null : execution.policyDecision().reason();
         if (decision == null) {
             return "This result reflects a resolved concurrent execution; see the recovery attempt for details.";
         }
