@@ -225,6 +225,9 @@ export function ScenarioOperations({
   const paymentConfirmationStatus = op.execution?.paymentConfirmationStatus ?? scenario.paymentConfirmationStatus ?? 'NOT_CONFIRMED'
   const confirmedAmount = op.execution?.confirmedAmount ?? scenario.confirmedAmount
   const providerPaymentId = op.execution?.providerPaymentId ?? scenario.providerPaymentId
+  // Only ever present on the direct response of the execution call that just created it - never
+  // persisted or re-fetched, so a stale/re-rendered card can't show a link from an older attempt.
+  const paymentLinkUrl = op.execution?.paymentLinkUrl ?? null
 
   const auditEntries = op.audit ?? scenario.auditTimeline
 
@@ -542,6 +545,26 @@ export function ScenarioOperations({
                 {confirmTestPaymentAction.error && (
                   <InlineError error={confirmTestPaymentAction.error} onRetry={handleConfirmTestPayment} />
                 )}
+              </div>
+            )}
+            {executed && provider === 'razorpay' && paymentLinkUrl && (
+              <div className="mt-3 rounded-lg border border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_10%,transparent)] p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-accent)]">
+                  Payment Link Created ≠ Payment Recovered
+                </div>
+                <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+                  A real Razorpay Test Mode Payment Link was created for this transaction. This recovery stays
+                  pending — it only becomes recovered once Razorpay sends a verified webhook confirming the
+                  customer actually paid it.
+                </p>
+                <a
+                  href={paymentLinkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-accent)] px-3.5 py-2 text-sm font-medium text-[var(--color-accent)] transition-colors hover:bg-[color-mix(in_srgb,var(--color-accent)_15%,transparent)]"
+                >
+                  Open Payment Link (Razorpay Test Mode) ↗
+                </a>
               </div>
             )}
           </div>

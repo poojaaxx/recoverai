@@ -599,7 +599,7 @@ class RecoveryExecutionServiceTest {
         Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
         PaymentGateway unavailable = req -> new PaymentExecutionResult(false, "razorpay", null, req.transactionId(),
                 req.action(), req.amount(), req.currency(), BigDecimal.ZERO, false, "failed",
-                PaymentFailureReason.PROVIDER_UNAVAILABLE, "Provider unavailable", req.idempotencyKey(), Instant.now());
+                PaymentFailureReason.PROVIDER_UNAVAILABLE, "Provider unavailable", req.idempotencyKey(), Instant.now(), null);
 
         RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, unavailable).execute(txn.getId());
 
@@ -614,7 +614,7 @@ class RecoveryExecutionServiceTest {
         Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
         PaymentGateway malformed = req -> new PaymentExecutionResult(false, "razorpay", null, req.transactionId(),
                 req.action(), req.amount(), req.currency(), BigDecimal.ZERO, false, "failed",
-                PaymentFailureReason.MALFORMED_RESPONSE, "Response did not parse", req.idempotencyKey(), Instant.now());
+                PaymentFailureReason.MALFORMED_RESPONSE, "Response did not parse", req.idempotencyKey(), Instant.now(), null);
 
         RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, malformed).execute(txn.getId());
 
@@ -629,7 +629,7 @@ class RecoveryExecutionServiceTest {
         Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
         PaymentGateway mismatch = req -> new PaymentExecutionResult(false, "razorpay", null, req.transactionId(),
                 req.action(), req.amount(), req.currency(), BigDecimal.ZERO, false, "failed",
-                PaymentFailureReason.AMOUNT_MISMATCH, "Amount did not match", req.idempotencyKey(), Instant.now());
+                PaymentFailureReason.AMOUNT_MISMATCH, "Amount did not match", req.idempotencyKey(), Instant.now(), null);
 
         RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, mismatch).execute(txn.getId());
 
@@ -643,7 +643,7 @@ class RecoveryExecutionServiceTest {
         Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
         PaymentGateway mismatch = req -> new PaymentExecutionResult(false, "razorpay", null, req.transactionId(),
                 req.action(), req.amount(), req.currency(), BigDecimal.ZERO, false, "failed",
-                PaymentFailureReason.TRANSACTION_MISMATCH, "Transaction identity did not match", req.idempotencyKey(), Instant.now());
+                PaymentFailureReason.TRANSACTION_MISMATCH, "Transaction identity did not match", req.idempotencyKey(), Instant.now(), null);
 
         RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, mismatch).execute(txn.getId());
 
@@ -664,6 +664,25 @@ class RecoveryExecutionServiceTest {
     }
 
     @Test
+    void razorpayPaymentLinkCreated_urlFlowsThroughResponse_transactionRemainsUnresolved() {
+        Customer strong = customer(10, 0);
+        Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), "exec_link_url");
+        String realPaymentLinkUrl = "https://rzp.io/i/testlink123";
+        PaymentGateway linkCreated = req -> new PaymentExecutionResult(true, "razorpay", "plink_test123",
+                req.transactionId(), req.action(), req.amount(), req.currency(), BigDecimal.ZERO, false, "created",
+                null, null, req.idempotencyKey(), Instant.now(), realPaymentLinkUrl);
+
+        RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, linkCreated).execute(txn.getId());
+
+        assertThat(response.paymentLinkUrl()).isEqualTo(realPaymentLinkUrl);
+        // Payment Link created is NOT payment recovered - amountRecovered stays 0 and the
+        // transaction stays FAILED until a real, verified webhook confirms it.
+        assertThat(response.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(response.paymentConfirmationStatus().name()).isEqualTo("NOT_CONFIRMED");
+        assertThat(transactionRepository.findById(txn.getId()).orElseThrow().getStatus()).isEqualTo(TransactionStatus.FAILED);
+    }
+
+    @Test
     void confirmedPayment_withNonZeroAmountRecovered_transitionsTransactionToRecovered() {
         // No real gateway can produce this today (Phase 6) - this proves the mapping itself is
         // implemented correctly for when a future provider confirmation mechanism can.
@@ -671,7 +690,7 @@ class RecoveryExecutionServiceTest {
         Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("2499.00"), null);
         PaymentGateway confirmedPayment = req -> new PaymentExecutionResult(true, "razorpay", "pay_confirmed_123",
                 req.transactionId(), req.action(), req.amount(), req.currency(), req.amount(), false, "paid",
-                null, null, req.idempotencyKey(), Instant.now());
+                null, null, req.idempotencyKey(), Instant.now(), null);
 
         executionService(ALWAYS_RETRIES, confirmedPayment).execute(txn.getId());
 
@@ -707,7 +726,7 @@ class RecoveryExecutionServiceTest {
         Customer strong = customer(10, 0);
         Transaction txn = transaction(strong, TransactionStatus.FAILED, new BigDecimal("5000.00"), null);
         PaymentGateway confirmedPayment = req -> new PaymentExecutionResult(true, "razorpay", "pay_conf", req.transactionId(),
-                req.action(), req.amount(), req.currency(), req.amount(), false, "paid", null, null, req.idempotencyKey(), Instant.now());
+                req.action(), req.amount(), req.currency(), req.amount(), false, "paid", null, null, req.idempotencyKey(), Instant.now(), null);
 
         RecoveryExecutionResponse response = executionService(ALWAYS_RETRIES, confirmedPayment).execute(txn.getId());
 

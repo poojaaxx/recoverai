@@ -23,7 +23,7 @@ class PaymentAuditEventsTest {
         PaymentExecutionResult result = new PaymentExecutionResult(
                 true, "mock", "mock_ref_123", transaction.getId(), RecoveryAction.RETRY_PAYMENT,
                 new BigDecimal("2499.00"), "INR", BigDecimal.ZERO, true, "created",
-                null, null, "idem-key", Instant.now());
+                null, null, "idem-key", Instant.now(), null);
 
         AuditLog audit = PaymentAuditEvents.forResult(transaction, result);
 
@@ -41,7 +41,7 @@ class PaymentAuditEventsTest {
         PaymentExecutionResult result = new PaymentExecutionResult(
                 false, "razorpay", null, transaction.getId(), RecoveryAction.RETRY_PAYMENT,
                 new BigDecimal("2499.00"), "INR", BigDecimal.ZERO, false, "failed",
-                PaymentFailureReason.DECLINED, "Card declined by issuer", "idem-key", Instant.now());
+                PaymentFailureReason.DECLINED, "Card declined by issuer", "idem-key", Instant.now(), null);
 
         AuditLog audit = PaymentAuditEvents.forResult(transaction, result);
 
@@ -55,7 +55,7 @@ class PaymentAuditEventsTest {
         PaymentExecutionResult result = new PaymentExecutionResult(
                 true, "razorpay", "plink_abc", transaction.getId(), RecoveryAction.CREATE_PAYMENT_LINK,
                 new BigDecimal("500.00"), "INR", BigDecimal.ZERO, false, "created",
-                null, null, "idem-key", Instant.now());
+                null, null, "idem-key", Instant.now(), null);
 
         AuditLog audit = PaymentAuditEvents.forResult(transaction, result);
 

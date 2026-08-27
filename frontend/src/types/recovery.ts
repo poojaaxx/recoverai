@@ -140,6 +140,8 @@ export interface ExecutionResult {
   confirmedCurrency: string | null
   providerPaymentId: string | null
   confirmedAt: string | null
+  /** The real, payable Razorpay Payment Link URL - present only immediately after a fresh, successful Razorpay execution. Never implies payment happened; only paymentConfirmationStatus === 'CONFIRMED' means that. */
+  paymentLinkUrl: string | null
 }
 
 export interface RiskMetrics {

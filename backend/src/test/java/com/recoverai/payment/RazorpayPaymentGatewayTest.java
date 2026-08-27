@@ -60,6 +60,52 @@ class RazorpayPaymentGatewayTest {
     }
 
     @Test
+    void successResponse_withShortUrl_parsesIdStatusAmountAndPaymentLinkUrl() {
+        RazorpayPaymentGateway gateway = gatewayWithoutCredentials();
+        PaymentExecutionRequest request = request(RecoveryAction.RETRY_PAYMENT, new BigDecimal("2499.00"), "INR");
+        String responseBody = """
+                {"id":"plink_test123","status":"created","amount":249900,\
+                "short_url":"https://rzp.io/i/testlink123"}""";
+
+        PaymentExecutionResult result = gateway.parseResult(request, responseBody, 249900L);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.providerReference()).isEqualTo("plink_test123");
+        assertThat(result.status()).isEqualTo("created");
+        assertThat(result.amount()).isEqualByComparingTo("2499.00");
+        assertThat(result.paymentLinkUrl()).isEqualTo("https://rzp.io/i/testlink123");
+    }
+
+    @Test
+    void successResponse_withoutShortUrl_stillParsesIdStatusAmount_paymentLinkUrlIsNull() {
+        RazorpayPaymentGateway gateway = gatewayWithoutCredentials();
+        PaymentExecutionRequest request = request(RecoveryAction.RETRY_PAYMENT, new BigDecimal("2499.00"), "INR");
+        String responseBody = """
+                {"id":"plink_test456","status":"created","amount":249900}""";
+
+        PaymentExecutionResult result = gateway.parseResult(request, responseBody, 249900L);
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.providerReference()).isEqualTo("plink_test456");
+        assertThat(result.amount()).isEqualByComparingTo("2499.00");
+        assertThat(result.paymentLinkUrl()).isNull();
+    }
+
+    @Test
+    void failedOrMismatchedResponses_neverReturnAPaymentLinkUrl() {
+        RazorpayPaymentGateway gateway = gatewayWithoutCredentials();
+        PaymentExecutionRequest request = request(RecoveryAction.RETRY_PAYMENT, new BigDecimal("2499.00"), "INR");
+
+        String amountMismatch = """
+                {"id":"plink_x","status":"created","amount":100,"short_url":"https://rzp.io/i/x"}""";
+        assertThat(gateway.parseResult(request, amountMismatch, 249900L).paymentLinkUrl()).isNull();
+
+        String notCreated = """
+                {"id":"plink_y","status":"expired","amount":249900,"short_url":"https://rzp.io/i/y"}""";
+        assertThat(gateway.parseResult(request, notCreated, 249900L).paymentLinkUrl()).isNull();
+    }
+
+    @Test
     void failureResults_neverExposeCredentials() {
         RazorpayProperties properties = new RazorpayProperties();
         properties.setEnabled(true);

@@ -318,7 +318,7 @@ public class RecoveryExecutionService {
                 "Recovery reminder recorded; no payment gateway was called and no money was moved.",
                 agentResponse.auditEventId(), Instant.now(),
                 confirmationStatus(attempt), attempt.getConfirmedAmount(), attempt.getConfirmedCurrency(),
-                attempt.getProviderPaymentId(), attempt.getConfirmedAt());
+                attempt.getProviderPaymentId(), attempt.getConfirmedAt(), null);
     }
 
     /**
@@ -399,7 +399,7 @@ public class RecoveryExecutionService {
                 "A concurrent request already executed this recovery attempt; returning its result.",
                 null, Instant.now(),
                 confirmationStatus(winner), winner.getConfirmedAmount(), winner.getConfirmedCurrency(),
-                winner.getProviderPaymentId(), winner.getConfirmedAt());
+                winner.getProviderPaymentId(), winner.getConfirmedAt(), null);
     }
 
     // ---------------------------------------------------------------- response builders
@@ -421,7 +421,7 @@ public class RecoveryExecutionService {
                 agentResponse.requiresHumanApproval(), false, null, agentResponse.finalAction(),
                 null, null, null, transaction.getAmount(), zero(), false,
                 null, null, duplicate, note, agentResponse.auditEventId(), Instant.now(),
-                PaymentConfirmationStatus.NOT_CONFIRMED, null, null, null, null);
+                PaymentConfirmationStatus.NOT_CONFIRMED, null, null, null, null, null);
     }
 
     /**
@@ -445,7 +445,7 @@ public class RecoveryExecutionService {
                 "mock".equals(existing.getProvider()), null, null, duplicate, note,
                 agentResponse.auditEventId(), Instant.now(),
                 confirmationStatus(existing), existing.getConfirmedAmount(), existing.getConfirmedCurrency(),
-                existing.getProviderPaymentId(), existing.getConfirmedAt());
+                existing.getProviderPaymentId(), existing.getConfirmedAt(), null);
     }
 
     /** Only a genuine payment-gateway success (`provider != null`) counts - a recorded {@code SEND_RECOVERY_REMINDER} never calls a gateway or gets confirmed, so it must keep reporting `executed=false` like any other non-payment action. */
@@ -474,7 +474,7 @@ public class RecoveryExecutionService {
                 "This exact recovery attempt was already executed; returning its result rather than calling the provider again.",
                 agentResponse.auditEventId(), Instant.now(),
                 confirmationStatus(existing), existing.getConfirmedAmount(), existing.getConfirmedCurrency(),
-                existing.getProviderPaymentId(), existing.getConfirmedAt());
+                existing.getProviderPaymentId(), existing.getConfirmedAt(), null);
     }
 
     private RecoveryExecutionResponse executedResponse(Transaction transaction,
@@ -490,7 +490,7 @@ public class RecoveryExecutionService {
                 result.failureCode(), result.failureReason(), duplicate, note,
                 agentResponse.auditEventId(), Instant.now(),
                 confirmationStatus(attempt), attempt.getConfirmedAmount(), attempt.getConfirmedCurrency(),
-                attempt.getProviderPaymentId(), attempt.getConfirmedAt());
+                attempt.getProviderPaymentId(), attempt.getConfirmedAt(), result.paymentLinkUrl());
     }
 
     /** Every existing row predates Phase 12's not-null column default only in H2 test fixtures built by hand; defends against a null field regardless. */

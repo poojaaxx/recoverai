@@ -52,14 +52,14 @@ public class MockPaymentGateway implements PaymentGateway {
         return new PaymentExecutionResult(
                 true, PROVIDER_NAME, providerReference, request.transactionId(), request.action(),
                 request.amount(), request.currency(), zero(), true, "created",
-                null, null, request.idempotencyKey(), Instant.now());
+                null, null, request.idempotencyKey(), Instant.now(), null);
     }
 
     private static PaymentExecutionResult failure(PaymentExecutionRequest request, PaymentFailureReason reason, String message) {
         return new PaymentExecutionResult(
                 false, PROVIDER_NAME, null, request.transactionId(), request.action(),
                 request.amount(), request.currency(), zero(), true, "failed",
-                reason, message, request.idempotencyKey(), Instant.now());
+                reason, message, request.idempotencyKey(), Instant.now(), null);
     }
 
     private static BigDecimal zero() {

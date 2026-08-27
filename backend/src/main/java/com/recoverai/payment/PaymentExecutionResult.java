@@ -22,6 +22,13 @@ import java.util.UUID;
  * (see docs/ARCHITECTURE.md). {@code simulated=true} whenever {@code
  * provider="mock"}, so a caller can never mistake a mock result for a
  * real one.
+ * <p>
+ * {@code paymentLinkUrl} is the payable link a customer would actually open (Razorpay's
+ * {@code short_url}) - present only for a successful {@code RazorpayPaymentGateway} payment-
+ * link creation, {@code null} for every mock result and every failure. It is purely
+ * informational: nothing in this system ever infers payment success or {@code
+ * TransactionStatus.RECOVERED} from its presence - only a verified webhook does that (see
+ * {@code com.recoverai.webhook.PaymentConfirmationService}).
  */
 public record PaymentExecutionResult(
         boolean success,
@@ -37,6 +44,7 @@ public record PaymentExecutionResult(
         PaymentFailureReason failureCode,
         String failureReason,
         String idempotencyKey,
-        Instant executedAt
+        Instant executedAt,
+        String paymentLinkUrl
 ) {
 }

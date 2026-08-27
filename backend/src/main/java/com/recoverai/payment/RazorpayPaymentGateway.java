@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Real Razorpay payment execution via the documented Payment Links API
@@ -82,7 +83,12 @@ public class RazorpayPaymentGateway implements PaymentGateway {
                     "currency", request.currency(),
                     "description", "RecoverAI recovery: %s for transaction %s"
                             .formatted(request.action(), request.externalTransactionId()),
-                    "reference_id", request.idempotencyKey(),
+                    // Razorpay caps reference_id at 40 characters; the real idempotency key can
+                    // exceed that, so a separate, deterministic, collision-resistant value is
+                    // derived for this field only - see RazorpayReferenceIds' javadoc. The full
+                    // idempotency key is untouched everywhere else (recovery_attempts table, the
+                    // duplicate-action check, etc.).
+                    "reference_id", RazorpayReferenceIds.forIdempotencyKey(request.idempotencyKey()),
                     "notes", Map.of(
                             "transactionId", request.transactionId().toString(),
                             "action", request.action().name()
@@ -104,7 +110,7 @@ public class RazorpayPaymentGateway implements PaymentGateway {
             return parseResult(request, responseBody, amountInPaise);
         } catch (WebClientResponseException e) {
             PaymentFailureReason reason = mapHttpStatus(e.getStatusCode().value());
-            log.warn("Razorpay API call failed for transaction {}: HTTP {}", request.transactionId(), e.getStatusCode().value());
+            logRazorpayError(request.transactionId(), e.getStatusCode().value(), e.getResponseBodyAsString());
             return failure(request, reason, "Razorpay API returned HTTP %d.".formatted(e.getStatusCode().value()));
         } catch (Exception e) {
             log.warn("Razorpay API call failed for transaction {}: {}", request.transactionId(), e.toString());
@@ -112,8 +118,13 @@ public class RazorpayPaymentGateway implements PaymentGateway {
         }
     }
 
-    /** Never trust the raw provider response - validate identity, amount, and status before ever claiming success. */
-    private PaymentExecutionResult parseResult(PaymentExecutionRequest request, String responseBody, long expectedAmountPaise) {
+    /**
+     * Never trust the raw provider response - validate identity, amount, and status before
+     * ever claiming success. Package-private (not {@code private}) specifically so {@code
+     * RazorpayPaymentGatewayTest} can exercise real Razorpay response payloads (including
+     * {@code short_url}) directly, without standing up an HTTP server to mock the network call.
+     */
+    PaymentExecutionResult parseResult(PaymentExecutionRequest request, String responseBody, long expectedAmountPaise) {
         JsonNode root;
         try {
             root = objectMapper.readTree(responseBody);
@@ -124,6 +135,10 @@ public class RazorpayPaymentGateway implements PaymentGateway {
         String id = root.path("id").asText(null);
         String status = root.path("status").asText(null);
         long responseAmount = root.path("amount").asLong(-1);
+        String shortUrl = root.path("short_url").asText(null);
+        if (shortUrl != null && shortUrl.isBlank()) {
+            shortUrl = null;
+        }
 
         if (id == null || id.isBlank() || status == null) {
             return failure(request, PaymentFailureReason.MALFORMED_RESPONSE, "Razorpay response was missing required fields (id/status).");
@@ -137,10 +152,12 @@ public class RazorpayPaymentGateway implements PaymentGateway {
         }
 
         // A created payment link is not itself confirmed recovery - see PaymentExecutionResult's javadoc.
+        // shortUrl is purely informational (the payable link) - it plays no role in this success
+        // determination, which is based only on id/status/amount above.
         return new PaymentExecutionResult(
                 true, PROVIDER_NAME, id, request.transactionId(), request.action(),
                 request.amount(), request.currency(), zero(), false, status,
-                null, null, request.idempotencyKey(), Instant.now());
+                null, null, request.idempotencyKey(), Instant.now(), shortUrl);
     }
 
     private static PaymentFailureReason mapHttpStatus(int statusCode) {
@@ -157,7 +174,35 @@ public class RazorpayPaymentGateway implements PaymentGateway {
         return new PaymentExecutionResult(
                 false, PROVIDER_NAME, null, request.transactionId(), request.action(),
                 request.amount(), request.currency(), zero(), false, "failed",
-                reason, message, request.idempotencyKey(), Instant.now());
+                reason, message, request.idempotencyKey(), Instant.now(), null);
+    }
+
+    /**
+     * Logs only the safe, structured parts of Razorpay's own error body - {@code error.code},
+     * {@code error.description}, {@code error.field}, {@code error.reason} (see <a
+     * href="https://razorpay.com/docs/api/errors/">Razorpay's documented error object
+     * shape</a>) - never the raw request or response bytes, which is the only way an
+     * Authorization header or credential could ever end up in a log line. This method never
+     * receives or logs {@link RazorpayProperties#getKeyId()}/{@link
+     * RazorpayProperties#getKeySecret()} - it only ever sees Razorpay's response, not the
+     * request this class sent.
+     */
+    private void logRazorpayError(UUID transactionId, int statusCode, String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            log.warn("Razorpay API call failed for transaction {}: HTTP {} (no response body).", transactionId, statusCode);
+            return;
+        }
+        try {
+            JsonNode error = objectMapper.readTree(responseBody).path("error");
+            log.warn("Razorpay API call failed for transaction {}: HTTP {} code={} description={} field={} reason={}",
+                    transactionId, statusCode,
+                    error.path("code").asText("unknown"),
+                    error.path("description").asText("none"),
+                    error.path("field").asText("none"),
+                    error.path("reason").asText("none"));
+        } catch (Exception parseError) {
+            log.warn("Razorpay API call failed for transaction {}: HTTP {} (response body was not parseable JSON).", transactionId, statusCode);
+        }
     }
 
     private static BigDecimal zero() {

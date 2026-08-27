@@ -43,6 +43,14 @@ import java.util.UUID;
  * a verified webhook proved the customer actually paid. {@code
  * amountRecovered} only becomes non-zero once that happens - see {@code
  * com.recoverai.webhook.PaymentConfirmationService}.
+ * <p>
+ * {@code paymentLinkUrl} is the real, payable Razorpay Payment Link URL - present only
+ * immediately after a fresh, successful {@code RazorpayPaymentGateway} execution (never for a
+ * mock execution, a replay/duplicate response, or a non-payment action); {@code null}
+ * everywhere else. It is not persisted - a later re-fetch of this transaction's state (a
+ * duplicate/existing-attempt response) intentionally omits it rather than risk surfacing a
+ * stale link. Its presence never implies the payment was made - only {@code
+ * paymentConfirmationStatus=CONFIRMED} means that.
  */
 public record RecoveryExecutionResponse(
         UUID transactionId,
@@ -69,6 +77,7 @@ public record RecoveryExecutionResponse(
         BigDecimal confirmedAmount,
         String confirmedCurrency,
         String providerPaymentId,
-        Instant confirmedAt
+        Instant confirmedAt,
+        String paymentLinkUrl
 ) {
 }
