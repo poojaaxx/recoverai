@@ -2,7 +2,24 @@
 
 An AI-assisted revenue recovery agent for failed payments, built for the Razorpay Buildathon, Track 03.
 
+![Status](https://img.shields.io/badge/status-live-3FA796) ![Backend tests](https://img.shields.io/badge/backend%20tests-414%20passing-3FA796) ![AI](https://img.shields.io/badge/AI-Groq%20live-F2A93B) ![Payments](https://img.shields.io/badge/Razorpay-Test%20Mode%20verified-F2A93B) ![Stack](https://img.shields.io/badge/stack-Spring%20Boot%20%2B%20React-14161F)
+
 **Live app:** https://recoverai-bay.vercel.app/demo/recovery · login `merchant.admin` / `RecoverAI-Judge-Admin-2026`
+
+```
+  FAILED PAYMENT                                                    CONFIRMED RECOVERY
+        |                                                                    ^
+        v                                                                    |
+  ┌──────────┐   ┌──────────────┐   ┌──────────┐   ┌───────────┐   ┌────────────────┐
+  │   Risk   │──>│      AI      │──>│  Policy  │──>│ Execution │──>│ Webhook-verified│
+  │  scoring │   │ recommends   │   │ decides  │   │ (if ALLOW)│   │  confirmation   │
+  └──────────┘   └──────────────┘   └──────────┘   └───────────┘   └────────────────┘
+                  suggests only        the only         calls           only this step
+                   never moves       gate that can      Razorpay      marks money as
+                       money         say "go"           Test Mode       recovered
+```
+
+An AI recommends. A deterministic policy engine decides. A signed webhook is the only thing that ever counts revenue as recovered.
 
 ## Screenshots
 
@@ -144,35 +161,73 @@ If a transaction is escalated, its detail page shows an "Escalation review" pane
 
 At one point I edited a Flyway migration file after it had already been applied to the production database — you're not supposed to do that, and Flyway noticed immediately. Every deploy after that started failing with a checksum mismatch (the site itself stayed up, since Render just kept serving the last working build). I fixed it properly instead of hacking around it: added a new forward migration to carry the actual change, and used Flyway's own repair mechanism to fix the checksum bookkeeping without touching anything already applied. Deploys went back to normal after that. I'm leaving this in the README because it's a real thing that happened during a real deployment, not just the happy path.
 
-## Project structure
+## 🚀 Getting Started
 
-```
-recoverai/
-├── backend/    Spring Boot API
-│   └── src/main/java/com/recoverai/
-│       ├── risk/       revenue risk scoring
-│       ├── policy/     deterministic authorization
-│       ├── agent/      AI recommendation
-│       ├── payment/    payment gateway adapter
-│       ├── execution/  ties risk + AI + policy + payment together
-│       └── webhook/    payment confirmation
-├── frontend/   React + TypeScript console
-├── docs/       deeper architecture/API/demo notes
-└── .env.example
-```
+### Prerequisites
 
-## Running locally
+- Java 17 and Maven (`mvn` on your `PATH` — there's no wrapper checked in)
+- Node.js 18+ and npm
+- Nothing else required to start: the default local profile runs on an in-memory H2 database, no PostgreSQL install needed. PostgreSQL is only needed if you want to run against a real database (see `.env.example`).
+
+### 1. Configure environment variables
 
 ```bash
 cp .env.example .env
-cd backend && SPRING_PROFILES_ACTIVE=local DEMO_SEED_ENABLED=true mvn spring-boot:run
 ```
+
+`.env` is gitignored — it's read by `spring-boot:run` and `npm run dev`, and should never be committed. The defaults in `.env.example` are enough to run locally: `SPRING_PROFILES_ACTIVE=local` (H2, no Postgres needed) and `DEMO_SEED_ENABLED=true` (seeds the 5 demo scenarios + login accounts on startup). Leave `AI_PROVIDER=mock` and `RAZORPAY_ENABLED=false` unless you have your own Anthropic/Groq/Razorpay Test Mode credentials to plug in.
+
+### 2. Run the backend
 
 ```bash
-cd frontend && npm install && npm run dev
+cd backend
+SPRING_PROFILES_ACTIVE=local DEMO_SEED_ENABLED=true mvn spring-boot:run   # runs on localhost:8080
 ```
 
-That runs the backend against an in-memory H2 database with demo data seeded, no PostgreSQL setup required. Log in at `http://localhost:5173` with `merchant.admin` / `RecoverAI-Judge-Admin-2026` (or set your own `DEMO_ADMIN_PASSWORD`/`DEMO_OPERATOR_PASSWORD` first). See `.env.example` for every config option, including how to point it at real PostgreSQL or turn on the Anthropic/Groq/Razorpay integrations.
+Sanity check once it's up:
+
+```bash
+curl http://localhost:8080/api/health
+```
+
+### 3. Run the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev                    # runs on localhost:5173
+```
+
+The backend's CORS config only allows `http://localhost:5173` by default (`CORS_ALLOWED_ORIGINS` in `.env.example`), so keep the frontend on that exact port.
+
+### 4. First walkthrough
+
+1. Open `http://localhost:5173` and log in with `merchant.admin` / `RecoverAI-Judge-Admin-2026` (or your own `DEMO_ADMIN_PASSWORD` if you set one).
+2. Land on `/demo/recovery` — five named scenarios are pre-seeded (easy ALLOW, high-value ESCALATE, repeated-failure STOP, already-recovered, already-escalated).
+3. Pick a scenario and click through it stage by stage: Analyze Risk → Get AI Recommendation → Evaluate Policy → Execute Recovery. Every button is a real backend call, nothing is precomputed.
+4. Open `/transactions` to browse and filter every transaction in the database, not just the curated 5, and `/audit` for the full cross-portfolio audit trail.
+5. If a transaction is escalated, open its detail page for the "Escalation review" panel (approve/reject), or use the batch recovery panel on `/demo/recovery` to execute several at once.
+
+## 📁 Project Structure
+
+```
+recoverai/
+├── backend/                       Spring Boot API
+│   └── src/main/java/com/recoverai/
+│       ├── risk/                  revenue risk scoring
+│       ├── agent/                 AI recommendation (mock / Anthropic / Groq)
+│       ├── policy/                deterministic authorization — the only gate that can say "go"
+│       ├── execution/             ties risk + AI + policy + payment together
+│       ├── payment/               payment gateway adapter (mock / Razorpay Test Mode)
+│       └── webhook/               signed payment confirmation — the only path that counts revenue
+├── frontend/                      React + TypeScript console
+│   └── src/
+│       ├── pages/                 Login, RecoveryDemo, Transactions, TransactionDetail, AuditFeed
+│       ├── components/            ScenarioOperations, AuditTimeline, BatchRecoveryPanel, EscalationQueuePanel
+│       └── lib/                   API client
+├── docs/                          architecture, API, and demo notes + real screenshots
+└── .env.example                   every config option, documented, no real secrets
+```
 
 ### Environment variables
 
