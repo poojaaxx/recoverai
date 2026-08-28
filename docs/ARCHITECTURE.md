@@ -866,10 +866,20 @@ enforced rule and the structural-independence guarantee (no
 
 Priority 2 of the production readiness phase asked for the complete
 intended recovery lifecycle to be verified as far as the environment
-allows. No real Razorpay Test Mode credentials have ever been configured
-in this environment, so nothing here claims a live Razorpay payment was
-confirmed. What **is** verified, over real HTTP, with the deterministic
-mock provider (`EndToEndRecoveryConfirmationTest`):
+allows. **Update:** real Razorpay Test Mode credentials have since been
+configured on the deployed instance, and the complete lifecycle has been
+verified against Razorpay's live Test Mode API - a real Payment Link
+(`plink_TVBPqTYj75jbFg`), a real Test Mode payment
+(`pay_TVBTB6UDBILa2E`), and a genuine webhook from Razorpay's own
+servers, verified and confirmed exactly as described below, with
+`Transaction.RECOVERED` and a real `confirmedAmount` persisted. See
+`docs/DEMO.md` § "How to verify the payment confirmation flow" for the
+evidence. `RAZORPAY_ENABLED=false`/`RAZORPAY_MODE=simulation` remain the
+safe repository defaults (this is opt-in only, via environment variables
+never committed to source control) - the automated-test path below is
+what still runs in CI/local dev, with the deterministic mock provider,
+and remains equally valid evidence when live credentials aren't
+configured:
 
 ```
 AI recommendation -> policy ALLOW -> execution (mock gateway) -> provider

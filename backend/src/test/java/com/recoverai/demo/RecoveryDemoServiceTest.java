@@ -1,18 +1,28 @@
 package com.recoverai.demo;
 
+import com.recoverai.agent.RecoveryAgentService;
 import com.recoverai.domain.PolicyDecision;
 import com.recoverai.domain.RecoveryAction;
 import com.recoverai.dto.RecoveryDemoScenarioResponse;
 import com.recoverai.dto.RecoveryDemoSummaryResponse;
+import com.recoverai.execution.RecoveryExecutionService;
+import com.recoverai.payment.PaymentExecutionResult;
+import com.recoverai.payment.PaymentFailureReason;
+import com.recoverai.payment.PaymentGateway;
+import com.recoverai.repository.AuditLogRepository;
 import com.recoverai.repository.RecoveryAttemptRepository;
+import com.recoverai.repository.TransactionRepository;
+import com.recoverai.risk.RevenueRiskService;
 import com.recoverai.seed.DemoDataSeeder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,6 +44,16 @@ class RecoveryDemoServiceTest {
     private RecoveryDemoService recoveryDemoService;
     @Autowired
     private RecoveryAttemptRepository recoveryAttemptRepository;
+    @Autowired
+    private TransactionRepository transactionRepository;
+    @Autowired
+    private AuditLogRepository auditLogRepository;
+    @Autowired
+    private RevenueRiskService revenueRiskService;
+    @Autowired
+    private RecoveryAgentService recoveryAgentService;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void setUp() {
@@ -145,6 +165,34 @@ class RecoveryDemoServiceTest {
         assertThat(easySecondTime.policyDecision()).isEqualTo(PolicyDecision.BLOCK);
         assertThat(easySecondTime.amountRecovered()).isEqualByComparingTo(BigDecimal.ZERO); // never confirmed in this test
         assertThat(easySecondTime.safetyExplanation()).containsIgnoringCase("safety policy");
+    }
+
+    @Test
+    void gatewayCallFailure_onAllowedPaymentAction_explainsTheFailure_notMisreportedAsNonGatewayAction() {
+        // Regression test: buildSafetyExplanation()'s ALLOW branch used to unconditionally say
+        // "it is not a payment-gateway action, so no provider call was made" whenever
+        // executed()=false under policy ALLOW - which is only true for SEND_RECOVERY_REMINDER.
+        // For a genuine payment-gateway action (RETRY_PAYMENT/CREATE_PAYMENT_LINK) whose provider
+        // call itself failed, executed() is also false, but a provider call absolutely was made -
+        // this was observed live against a real Razorpay HTTP 400 failure.
+        PaymentGateway alwaysDeclines = req -> new PaymentExecutionResult(false, "mock", null, req.transactionId(),
+                req.action(), req.amount(), req.currency(), BigDecimal.ZERO, true, "failed",
+                PaymentFailureReason.DECLINED, "Mock provider simulated a decline for this request.",
+                req.idempotencyKey(), Instant.now(), null);
+        RecoveryExecutionService failingExecutionService = new RecoveryExecutionService(
+                transactionRepository, recoveryAttemptRepository, auditLogRepository,
+                recoveryAgentService, alwaysDeclines, transactionManager);
+        RecoveryDemoService demoServiceWithFailingGateway = new RecoveryDemoService(
+                transactionRepository, auditLogRepository, revenueRiskService, failingExecutionService);
+
+        RecoveryDemoScenarioResponse result = demoServiceWithFailingGateway.runOne("demo-easy-recovery");
+
+        assertThat(result.policyDecision()).isEqualTo(PolicyDecision.ALLOW);
+        assertThat(result.executed()).isFalse();
+        assertThat(result.provider()).isEqualTo("mock");
+        assertThat(result.safetyExplanation())
+                .contains("provider call failed")
+                .doesNotContain("not a payment-gateway action");
     }
 
     @Test

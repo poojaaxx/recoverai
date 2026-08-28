@@ -176,8 +176,17 @@ public class RecoveryDemoService {
                     + "Execution prevented by safety policy. Reason: " + reason;
             case STOP -> "The policy engine stopped automated recovery for this transaction. "
                     + "Execution prevented by safety policy. Reason: " + reason;
-            case ALLOW -> "Policy authorized this action, but it is not a payment-gateway action, "
-                    + "so no provider call was made.";
+            // `provider` is set by RecoveryExecutionService.executedResponse() whenever a gateway
+            // call was actually attempted, whether it succeeded or failed (see PaymentGateway's
+            // failure() builders) - so its presence here, with executed()=false, means the call
+            // was made and failed, not that this was some other, non-gateway action.
+            case ALLOW -> execution.provider() != null
+                    ? ("Policy authorized this action and it was attempted through the %s payment "
+                            + "provider (simulated=%s), but the provider call failed. Reason: %s")
+                            .formatted(execution.provider(), execution.simulated(),
+                                    execution.failureReason() == null ? "no failure reason was reported." : execution.failureReason())
+                    : "Policy authorized this action, but it is not a payment-gateway action, "
+                            + "so no provider call was made.";
         };
     }
 

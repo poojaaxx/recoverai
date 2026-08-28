@@ -194,12 +194,23 @@ see
 
 ## How to verify the payment confirmation flow
 
-No real Razorpay Test Mode credentials are configured in this
-environment, so this demo cannot show a real webhook arriving from
-Razorpay's servers. What it *can* show — and what actually proves the
-confirmation logic is real, not decorative — is the same code path a real
-webhook would hit, driven by a genuinely HMAC-signed request instead of a
-live one:
+**Update:** real Razorpay Test Mode credentials are now configured on the
+deployed instance, and a real Test Mode payment has been confirmed end to
+end — a Payment Link was created through the live Razorpay API
+(`plink_TVBPqTYj75jbFg`), paid using Razorpay's own Test Mode payment
+simulator, and a genuine webhook from Razorpay's servers (not a
+self-signed one) was received at `POST /api/webhooks/razorpay`, verified,
+and matched to the recovery attempt — `providerPaymentId=pay_TVBTB6UDBILa2E`,
+`confirmedAmount=167.25`, transaction `RECOVERED`, with the full
+`PAYMENT_WEBHOOK_RECEIVED` → `PAYMENT_CONFIRMATION_VERIFIED` →
+`PAYMENT_RECOVERY_CONFIRMED` audit trail persisted and still verifiable via
+`GET /api/transactions/{id}/detail`.
+
+Without live credentials configured (e.g. local development, or a
+redeployment before Razorpay is reconfigured), the same confirmation logic
+can still be proven real without needing Razorpay's servers at all — the
+same code path a real webhook would hit, driven by a genuinely HMAC-signed
+request instead of a live one:
 
 1. Run `mvn test -Dtest=EndToEndRecoveryConfirmationTest` from `backend/`
    (or read `backend/src/test/java/com/recoverai/webhook/EndToEndRecoveryConfirmationTest.java`
@@ -224,9 +235,9 @@ live one:
    mismatched, as appropriate) request, never a parallel unsigned bypass.
 
 This is the honest claim: the confirmation flow is real, tested, signature
--verified code, exercised end to end — not a real Razorpay Test Mode
-payment, which would require live credentials this environment doesn't
-have.
+-verified code, exercised end to end — and (see the update above) it has
+now also been exercised against a genuine Razorpay Test Mode payment and a
+genuine Razorpay-originated webhook, not just a self-signed simulation.
 
 ## Repeatability
 
@@ -254,15 +265,19 @@ Requires `DEMO_SEED_ENABLED=true` and refuses (409) if
 `RAZORPAY_ENABLED=true` — see
 [docs/API.md § `POST /api/demo/recovery/reset`](API.md#post-apidemorecoveryreset-merchant_admin-only).
 
-## Still to come
+## Real Razorpay Test Mode status
 
-- A real Razorpay Test Mode payment actually confirmed end to end — the
-  confirmation flow (Phase 12) is real, tested code, but no live Razorpay
-  Test Mode credentials have been configured in this environment, so no
-  real webhook has ever been received here. What *is* now available: a
-  judge-safe "Confirm via signed webhook (TEST/SIMULATION)" button in the
-  demo console (`POST /api/demo/recovery/confirm-test-payment/{id}`) that
-  drives a real signed payload through the exact same confirmation code a
-  genuine webhook would hit — see [README.md § Measuring recovered
-  revenue](../README.md) and [docs/API.md](API.md) for exactly what it
-  does and doesn't prove.
+A real Razorpay Test Mode payment has been confirmed end to end (see the
+"Update" note above) — Payment Link creation, an actual Test Mode payment,
+a genuine Razorpay webhook, signature verification, and a persisted
+`RECOVERED` transaction with a real `confirmedAmount`, all against the
+live Razorpay API. This depends on `RAZORPAY_ENABLED=true`,
+`RAZORPAY_MODE=test`, and real `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`/
+`RAZORPAY_WEBHOOK_SECRET` being configured on the deployment — if a future
+redeployment runs without those set, the gateway falls back to the mock
+provider (safe by design; see `PaymentGatewayConfig`), and the judge-safe
+"Confirm via signed webhook (TEST/SIMULATION)" button
+(`POST /api/demo/recovery/confirm-test-payment/{id}`) remains available as
+the fallback way to prove the confirmation logic without live credentials
+— see [README.md § Measuring recovered revenue](../README.md) and
+[docs/API.md](API.md) for exactly what each path does and doesn't prove.
