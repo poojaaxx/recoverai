@@ -2,6 +2,32 @@
 
 An AI-assisted revenue recovery agent for failed payments, built for the Razorpay Buildathon, Track 03.
 
+**Live app:** https://recoverai-bay.vercel.app/demo/recovery · login `merchant.admin` / `RecoverAI-Judge-Admin-2026`
+
+## Screenshots
+
+Real screenshots of the live, deployed app — not mockups.
+
+**Dashboard** — real-time portfolio metrics, the recovery pipeline diagram, the live Groq AI provider badge, and a scenario walking through risk → AI recommendation → policy → execution → confirmation:
+
+![RecoverAI dashboard](docs/screenshots/02-dashboard.png)
+
+**High-value transaction escalated for human approval** — the policy engine requires manual review above the autonomous recovery limit, and the AI's recommendation never overrides that:
+
+![High-value transaction escalated for human review](docs/screenshots/05-high-value-escalation.png)
+
+**Transactions dashboard** — every transaction in the database, searchable and filterable, not just the curated demo scenarios:
+
+![Transactions dashboard](docs/screenshots/03-transactions.png)
+
+**Audit trail** — every risk detection, AI recommendation, policy decision, execution, and payment confirmation, as real persisted database rows:
+
+![Audit activity feed](docs/screenshots/04-audit.png)
+
+**Login** — JWT-based auth with `MERCHANT_ADMIN`/`OPERATOR` roles:
+
+![Login page](docs/screenshots/01-login.png)
+
 ## The problem
 
 Every payment platform loses money to failed payments — an expired card, a bank declining a routine charge, a network blip, a customer who just didn't have funds that day. A lot of that revenue is actually recoverable if someone follows up the right way. Most systems either do nothing about it, or blindly retry every failed payment, which annoys customers and can trip fraud rules.
